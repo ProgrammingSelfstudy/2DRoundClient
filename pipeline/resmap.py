@@ -54,13 +54,17 @@ def main(root, audit_path, out_dir):
             cands.update(m.group(0).decode("latin1") for m in STR_RE.finditer(data))
 
     found = {}  # hash -> virtual path
+    why = {}  # hash -> how it was reached: literal (a path written in a csb/Lua/name map), linked (named by a plist/atlas/skel
+    # that was reached), spine-data (model id is in the server's data tables), spine-lua (model id only in the Lua)
+    literal = {c.lstrip("./") for c in cands} | {c.lstrip("./").replace("//", "/") for c in cands}
 
-    def try_path(p):
+    def try_path(p, how=None):
         p = p.lstrip("./")
         for q in (p, p.replace("//", "/")):
             h = resource_hash(q)
             if h in on_disk and h not in found:
                 found[h] = q
+                why[h] = how or ("literal" if q in literal else "linked")
                 return True
         return False
 
@@ -109,19 +113,52 @@ def main(root, audit_path, out_dir):
                     actions.add(line.strip()[:-4])
                     break
     model_re = re.compile(rb"\b[A-Za-z]\d{4,6}\b")
-    models = set()
-    for src in (os.path.join(root, "outputs/lua-restored-paths"), os.path.join(root, "outputs/lua-decompiled-raw"),
-                os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../2DRoundServer/internal/game/data")):
+    in_data, in_lua = set(), set()
+    for src, into in ((os.path.join(root, "outputs/lua-restored-paths"), in_lua), (os.path.join(root, "outputs/lua-decompiled-raw"), in_lua),
+                      (os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../2DRoundServer/internal/game/data"), in_data)):
         for dirpath, _, files in os.walk(src):
             for f in files:
                 if f.endswith((".lua", ".json")):
-                    models.update(m.decode() for m in model_re.findall(open(os.path.join(dirpath, f), "rb").read()))
+                    into.update(m.decode() for m in model_re.findall(open(os.path.join(dirpath, f), "rb").read()))
+    models = in_data | in_lua
     spine_before = len(found)
     for model in models:
         for act in actions:
             for ext in (".skel", ".atlas", ".png"):
-                try_path(f"{SPINE_DIR}/{model}/{act}{ext}")
+                try_path(f"{SPINE_DIR}/{model}/{act}{ext}", "spine-data" if model in in_data else "spine-lua")
     print(f"spine: {len(actions)} actions x {len(models)} models resolved {len(found) - spine_before} files")
+
+    # Paths the Lua builds with string.format: "resource/item/%d.png". Fill one placeholder with every integer up to 100000 and every
+    # identifier the Lua mentions, two %d with small integers. Templates with other shapes are left alone (listed in the report).
+    tmpl_re = re.compile(r'["\']([A-Za-z0-9_/\-\.]*%[sd][A-Za-z0-9_/\-\.%]*)["\']')
+    ident_re = re.compile(r'["\']([A-Za-z0-9_\-]{1,40})["\']')
+    templates, idents = set(), set()
+    for dirpath, _, files in os.walk(os.path.join(root, "outputs/lua-restored-paths")):
+        for f in files:
+            if f.endswith(".lua"):
+                text = open(os.path.join(dirpath, f), errors="replace").read()
+                for t in tmpl_re.findall(text):
+                    if "/" in t and t.endswith((".png", ".jpg", ".plist", ".csb", ".skel", ".atlas", ".mp3")):
+                        templates.add(t)
+                idents.update(ident_re.findall(text))
+    values = [str(i) for i in range(100001)] + sorted(idents)
+    small = [str(i) for i in range(301)]
+    tmpl_before, skipped = len(found), []
+    for t in sorted(templates):
+        slots = re.findall(r"%[sd]", t)
+        if len(slots) == 1:
+            pre, post = re.split(r"%[sd]", t)
+            for v in values:
+                try_path(pre + v + post, "template")
+        elif len(slots) == 2 and slots == ["%d", "%d"]:
+            pre, mid, post = re.split(r"%d", t)
+            for a in small:
+                for b in small:
+                    try_path(pre + a + mid + b + post, "template")
+        else:
+            skipped.append(t)
+    print(f"templates: {len(templates)} found, {len(templates) - len(skipped)} filled, resolved {len(found) - tmpl_before} files")
+    print("not filled:", skipped)
 
     audit = json.load(open(audit_path))
     imgs = audit["images"]
@@ -132,7 +169,7 @@ def main(root, audit_path, out_dir):
         by_dir.setdefault(top, [0, 0])
         by_dir[top][0] += 1
         by_dir[top][1] += r["bytes"]
-    json.dump({"found": found}, open(os.path.join(out_dir, "resmap.json"), "w"), indent=0)
+    json.dump({"found": found, "why": why}, open(os.path.join(out_dir, "resmap.json"), "w"), indent=0)
     kinds = {}
     for p in found.values():
         e = os.path.splitext(p)[1]
