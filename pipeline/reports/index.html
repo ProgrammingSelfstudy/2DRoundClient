@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>资源管线进度</title>
+<style>
+:root{--bg:#f6f7f9;--fg:#1c2330;--card:#fff;--mut:#6b7280;--ok:#16a34a;--doing:#d97706;--todo:#9ca3af;--bd:#e5e7eb}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1218;--fg:#e6e9ef;--card:#181d27;--mut:#8b94a5;--bd:#2a3140}}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 -apple-system,system-ui,sans-serif;padding:16px;max-width:980px;margin-inline:auto}
+h1{font-size:20px;margin:0 0 4px}.sub{color:var(--mut);margin-bottom:16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:16px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px 14px}
+.k{color:var(--mut);font-size:12px}.v{font-size:22px;font-weight:600}
+ol{list-style:none;padding:0;margin:0 0 16px}li{display:flex;gap:10px;align-items:center;padding:8px 12px;background:var(--card);border:1px solid var(--bd);border-radius:8px;margin-bottom:6px}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--todo)}.done .dot{background:var(--ok)}.doing .dot{background:var(--doing);animation:p 1s infinite}
+@keyframes p{50%{opacity:.3}}table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--bd);border-radius:10px}
+td,th{padding:6px 10px;border-bottom:1px solid var(--bd);text-align:left}th{color:var(--mut);font-weight:500}
+</style></head><body>
+<h1>资源管线进度</h1><div class="sub" id="sub">加载中…</div>
+<ol id="steps"></ol><div class="grid" id="cards"></div>
+<table id="cls"></table>
+<script>
+const mb=n=>(n/1e6).toFixed(1)+' MB',card=(k,v)=>`<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+async function tick(){try{
+const s=await (await fetch('status.json?'+Date.now())).json();
+document.getElementById('sub').textContent='更新于 '+s.updated+'（每 5 秒自动刷新）';
+document.getElementById('steps').innerHTML=Object.entries(s.steps).map(([k,v])=>`<li class="${v}"><span class="dot"></span>${k}<span style="margin-left:auto;color:var(--mut)">${{done:'完成',doing:'进行中',todo:'待做'}[v]}</span></li>`).join('');
+let c='';const a=s.audit,d=s.dedupe,x=s.csb,t=s.textures;
+if(a)c+=card('图片总数',a.images.toLocaleString())+card('总体积',mb(a.total_bytes))+card('超过 1MB',a.over_1mb+' 张 / '+mb(a.over_1mb_bytes));
+if(d)c+=card('重复文件可去掉',d.files_removed.toLocaleString()+' 个 / '+mb(d.bytes_saved))+card('去重后图片数',d.images_after.toLocaleString());
+if(x)c+=card('CSB 布局',x.csb+' 个 / '+x.refs+' 个图片引用');
+if(t)for(const [k,v] of Object.entries(t))c+=card(k,v);
+document.getElementById('cards').innerHTML=c;
+if(s.classes)document.getElementById('cls').innerHTML='<tr><th>引用类别</th><th>张数</th><th>体积</th></tr>'+Object.entries(s.classes).map(([k,[n,b]])=>`<tr><td>${k}</td><td>${n}</td><td>${mb(b)}</td></tr>`).join('');
+}catch(e){document.getElementById('sub').textContent='等待数据…'}}
+tick();setInterval(tick,5000);
+</script></body></html>
