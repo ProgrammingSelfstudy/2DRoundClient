@@ -19,10 +19,15 @@ export class Session {
   readonly sock: GameSocket;
   private idx = 0;
   private waiters = new Map<number, (m: Msg | null) => void>();
+  // the newest decoded frame of every server command, and when the last frame of any kind arrived
+  readonly last = new Map<number, Msg>();
+  lastFrameAt = 0;
 
   constructor(sock: GameSocket) {
     this.sock = sock;
     sock.onFrame = (cmd, msg) => {
+      this.lastFrameAt = Date.now();
+      if (msg) this.last.set(cmd, msg);
       const w = this.waiters.get(cmd);
       if (w) {
         this.waiters.delete(cmd);
@@ -54,6 +59,20 @@ export class Session {
   reset() {
     this.idx = 0;
     this.waiters.clear();
+    this.last.clear();
+  }
+
+  // resolve once no frame has arrived for `quietMs` (the server has stopped answering), or after `maxMs`
+  quiet(quietMs = 500, maxMs = 6000): Promise<void> {
+    const start = Date.now();
+    return new Promise(resolve => {
+      const tick = () => {
+        const now = Date.now();
+        if (now - Math.max(this.lastFrameAt, start) >= quietMs || now - start >= maxMs) resolve();
+        else setTimeout(tick, 50);
+      };
+      tick();
+    });
   }
 
   // send a command, preceded by its 1197 unless it is exempt
