@@ -88,7 +88,7 @@ export async function buildLoginPage(canvas: Node, account: string, password: st
   try {
     const layout = await loadJson<LNode>("layouts/login/user_panel.json"); // the file is the tree itself
     const built = await buildLayout(layout, root, { hide: ["btn_mail"] });
-    built.root.setPosition(-250, -400, 0);
+    built.root.setPosition(-250, -360, 0);
     acct = built.byName.get("user_name_input")!.getComponent(EditBox);
     pass = built.byName.get("password_input")!.getComponent(EditBox);
     bLogin = built.byName.get("btn_login") ?? null;
