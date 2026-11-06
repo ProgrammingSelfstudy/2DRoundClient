@@ -2,7 +2,7 @@
 // layout of its own): a quality frame by star, the head picture, the camp badge, level and stars. The grid scrolls by dragging.
 import { Color, HorizontalTextAlignment, Label, Mask, Node, Sprite, UITransform, VerticalTextAlignment } from "cc";
 import { atlasFrame, loadJson, spriteFrame } from "./cdn";
-import { LNode, buildLayout } from "./ui";
+import { LNode, buildLayout, opaqueBase } from "./ui";
 import { W, H } from "./loginpage";
 import type { SpriteFrame } from "cc";
 
@@ -24,6 +24,7 @@ export async function buildHeroPage(canvas: Node): Promise<HeroPage> {
   });
   const root = built.root;
   root.setPosition(-W / 2, -H / 2, 0);
+  opaqueBase(root, W, H);
   root.active = false;
 
   const bg = built.byName.get("background")!;

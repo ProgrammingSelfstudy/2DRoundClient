@@ -2,7 +2,7 @@
 // side arrows. The icon of an item is looked up in the release's item table (tables/items.json: name, icon number, type, quality).
 import { HorizontalTextAlignment, Label, Node, Sprite, UITransform } from "cc";
 import { loadJson, spriteFrame } from "./cdn";
-import { LNode, buildLayout } from "./ui";
+import { LNode, buildLayout, opaqueBase } from "./ui";
 import { W, H } from "./loginpage";
 
 interface Slot { base_id: number; quantity: number }
@@ -21,6 +21,7 @@ export async function buildBackpackPage(canvas: Node): Promise<BackpackPage> {
   const built = await buildLayout(win, canvas, { hide: ["title_img", "Image_3", "Image_3_0"] });
   const root = built.root;
   root.setPosition(-W / 2, -H / 2, 0);
+  opaqueBase(root, W, H);
   root.active = false;
 
   // the full-screen background is chosen in Lua at run time; the common fill picture is what it falls back to
