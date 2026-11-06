@@ -9,7 +9,7 @@ h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:20px 0 8px}.sub,small,
 .card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px 14px}
 ol{list-style:none;padding:0;margin:0}li{display:flex;gap:10px;align-items:center;padding:8px 12px;background:var(--card);border:1px solid var(--bd);border-radius:8px;margin-bottom:6px}
 .dot{width:10px;height:10px;border-radius:50%;background:var(--todo);flex:none}.done .dot{background:var(--ok)}.doing .dot{background:var(--doing);animation:p 1s infinite}@keyframes p{50%{opacity:.3}}
-button{font:inherit;padding:4px 12px;border:1px solid var(--bd);background:var(--card);color:var(--fg);border-radius:6px;cursor:pointer;margin-right:6px}
+button:disabled{opacity:.45;cursor:not-allowed}button{font:inherit;padding:4px 12px;border:1px solid var(--bd);background:var(--card);color:var(--fg);border-radius:6px;cursor:pointer;margin-right:6px}
 #state{font-weight:600}#state[data-s=open]{color:var(--ok)}#state[data-s=error],#state[data-s=closed]{color:var(--bad)}
 table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:4px 8px;border-bottom:1px solid var(--bd);text-align:left;vertical-align:top}th{color:var(--mut);font-weight:500}
 .c2s{color:var(--c2s)}.s2c{color:var(--s2c)}.body{font-family:ui-monospace,monospace;word-break:break-all}
@@ -20,6 +20,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:4px 8px;b
 <div class="card">
   <div>地址：<code id="url"></code>　状态：<span id="state">未连接</span></div>
   <div>协议表：<span id="schema"></span></div>
+  <p id="hint" style="color:var(--bad);margin:8px 0 0"></p>
   <p><button id="connect">连接</button><button id="beat">发送心跳 1169</button><button id="close">断开</button></p>
 </div>
 <h2>收发日志</h2>

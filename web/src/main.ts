@@ -11,7 +11,13 @@ $("schema").textContent = `${Object.keys(send).length} 个请求，${Object.keys
 sock.onState = s => {
   $("state").textContent = s;
   $("state").dataset.s = s.split(" ")[0];
+  ($("beat") as HTMLButtonElement).disabled = s !== "open";
+  // 1006 is what a browser reports for any failed handshake; the gateway answers 403 to a page whose origin is not in gateway.ws_origins
+  $("hint").textContent = s.startsWith("closed (1006)")
+    ? "连接没有建立：检查网关是否在运行，以及本页地址是否在网关配置 gateway.ws_origins 里（浏览器会带 Origin，不在名单里会被 403 拒绝）。"
+    : "";
 };
+($("beat") as HTMLButtonElement).disabled = true;
 sock.onLog = (e: Logged) => {
   const tr = document.createElement("tr");
   const time = new Date(e.t).toLocaleTimeString();
