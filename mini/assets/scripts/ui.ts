@@ -2,9 +2,9 @@
 // Positions are the original's: in the parent's space with its bottom-left as origin. A Creator child is placed relative to the parent's
 // anchor point, so each position is moved by anchor * size of the parent. Every image comes from an atlas of the release.
 import { Color, EditBox, HorizontalTextAlignment, Label, Node, Sprite, UITransform, VerticalTextAlignment } from "cc";
-import { atlasFrame } from "./cdn";
+import { atlasFrame, spriteFrame } from "./cdn";
 
-export interface LRes { slot: number; path: string; plist: string; atlas: string }
+export interface LRes { slot: number; path: string; plist: string; atlas: string; image?: string }
 export interface LNode {
   class: string;
   name: string;
@@ -18,7 +18,7 @@ export interface LNode {
   children: LNode[];
 }
 export interface Built { root: Node; byName: Map<string, Node> }
-export interface BuildOptions { hide?: string[]; fontSize?: number; inputFontSize?: number }
+export interface BuildOptions { hide?: string[]; noText?: boolean; panelImages?: boolean; fontSize?: number; inputFontSize?: number }
 
 export async function buildLayout(tree: LNode, parent: Node, opts: BuildOptions = {}): Promise<Built> {
   const byName = new Map<string, Node>();
@@ -45,7 +45,22 @@ async function make(n: LNode, p: LNode | null, layer: number, byName: Map<string
 
   switch (n.class) {
     case "ImageView":
+    case "Sprite":
       await addImage(node, n);
+      break;
+    case "LoadingBar":
+      await addImage(node, n);
+      if (node.getComponent(Sprite)) {
+        // the bar fills from the left as its percent goes up; nothing is filled until the owner sets it
+        const bar = node.getComponent(Sprite)!;
+        bar.type = Sprite.Type.FILLED;
+        bar.fillType = Sprite.FillType.HORIZONTAL;
+        bar.fillStart = 0;
+        bar.fillRange = 0;
+      }
+      break;
+    case "Text":
+      if (!opts.noText) addText(node, n.strings[0]?.text ?? "", Math.max(14, Math.round(size[1] * 0.8)), size, true);
       break;
     case "Button":
       await addImage(node, n);
@@ -54,8 +69,11 @@ async function make(n: LNode, p: LNode | null, layer: number, byName: Map<string
     case "TextField":
       addInput(node, n, size, opts.inputFontSize ?? 26);
       break;
+    case "Panel":
+      if (opts.panelImages) await addImage(node, n); // a Panel may carry a background picture
+      break;
     default:
-      break; // Node, Panel: a container
+      break; // Node: a container
   }
   for (const c of n.children) node.addChild(await make(c, n, layer, byName, opts));
   return node;
@@ -63,15 +81,33 @@ async function make(n: LNode, p: LNode | null, layer: number, byName: Map<string
 
 async function addImage(node: Node, n: LNode) {
   const r = n.res[0];
-  if (!r || !r.atlas) { console.warn(`ui: ${n.name} has no atlas image`); return; }
+  if (!r || !(r.atlas || r.image)) { return; } // a container that only carries a background it does not need
   const s = node.addComponent(Sprite);
   s.sizeMode = Sprite.SizeMode.CUSTOM;
   s.type = n.s9?.on ? Sprite.Type.SLICED : Sprite.Type.SIMPLE;
-  s.spriteFrame = await atlasFrame(r.atlas, r.path, n.s9?.on ? n.s9.cap : undefined);
+  try {
+    s.spriteFrame = r.atlas ? await atlasFrame(r.atlas, r.path, n.s9?.on ? n.s9.cap : undefined) : await spriteFrame(r.image!);
+  } catch (e) {
+    console.warn(`ui: ${n.name}: ${(e as Error).message}`); // one missing picture must not stop the whole page
+  }
   node.getComponent(UITransform)!.setContentSize(n.size![0], n.size![1]); // setting the frame may reset the size
 }
 
-function addText(node: Node, text: string, fontSize: number, size: number[]): Label {
+function addText(node: Node, text: string, fontSize: number, size: number[], inPlace = false): Label {
+  if (inPlace) { // a Text node of the layout is the label itself
+    const l = node.addComponent(Label);
+    l.string = text;
+    l.fontSize = fontSize;
+    l.lineHeight = Math.round(fontSize * 1.2);
+    l.color = new Color(255, 255, 255, 255);
+    l.horizontalAlign = HorizontalTextAlignment.CENTER;
+    l.verticalAlign = VerticalTextAlignment.CENTER;
+    l.overflow = Label.Overflow.SHRINK;
+    l.enableOutline = true;
+    l.outlineColor = new Color(40, 20, 10, 255);
+    l.outlineWidth = 2;
+    return l;
+  }
   const t = new Node("text");
   t.layer = node.layer;
   t.addComponent(UITransform).setContentSize(size[0], size[1]);

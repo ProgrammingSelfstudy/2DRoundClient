@@ -27,7 +27,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from csb_tree import tree  # noqa: E402
 
-LAYOUTS = {"boot": ["login/user_panel.csb"]}  # group -> csb paths (under the recovered csb directory) shipped as layouts
+LAYOUTS = {"boot": ["login/user_panel.csb"], "mainui": ["mainui/mainui_view.csb"]}  # group -> csb paths (under the recovered csb directory) shipped as layouts
 
 
 def group_of(path):
@@ -35,6 +35,10 @@ def group_of(path):
         return "boot"
     if path.startswith("resource/common/"):
         return "core-base"
+    if path.startswith("resource/mainui/"):
+        return "mainui"
+    if path.startswith("resource/item/"):
+        return "icons-item"
     return None
 
 
@@ -44,6 +48,10 @@ def logical_image(path, group):
         return "boot/" + name
     if group == "core-base":
         return "ui/common/" + name
+    if group == "mainui":
+        return "ui/mainui/" + name
+    if group == "icons-item":
+        return "icons/item/" + name
     raise SystemExit(f"no naming rule for group {group!r}; add one to logical_image() first")
 
 
@@ -117,6 +125,8 @@ def main(assets, version, groups):
                 for r in n["res"]:
                     # a frame inside an atlas is addressed as <logical atlas json>#<frame name>; a loose image by its original path
                     r["atlas"] = logical_atlas(r["plist"]) if r["plist"] else ""
+                    # a loose image (an item icon) is addressed by its own logical path
+                    r["image"] = "" if r["plist"] or not group_of(r["path"]) else logical_image(r["path"], group_of(r["path"]))
                 for c in n["children"]:
                     rewrite(c)
             rewrite(t)

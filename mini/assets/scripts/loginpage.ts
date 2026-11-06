@@ -43,6 +43,7 @@ export interface LoginPage {
   onRegister(f: () => void): void;
   setFooter(text: string): void;
   setNote(text: string): void; // stays on screen: what the player has to write down (the made-up account and password)
+  hide(): void;
   relayout(): void; // call after the window size changed
 }
 
@@ -128,6 +129,7 @@ export async function buildLoginPage(canvas: Node, account: string, password: st
     onRegister: f => { onRegister = f; },
     setFooter: t => { footer.string = t; },
     setNote: t => { note.string = t; },
+    hide: () => { root.active = false; },
     relayout: cover
   };
 }

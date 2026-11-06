@@ -3,6 +3,7 @@
 import { Canvas, Director, ResolutionPolicy, director, profiler, screen, view } from "cc";
 import { loadRelease } from "./cdn";
 import { buildLoginPage } from "./loginpage";
+import { buildMainPage } from "./mainpage";
 import { GameSocket } from "./shared/net";
 import { Session } from "./shared/session";
 import { enterGame, httpRegister, randomCredentials } from "./shared/login";
@@ -67,6 +68,9 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
       const city = await loadMainCity(session, () => {});
       const r = city.role as Record<string, unknown>;
       page.setStatus(`${r.name}  Lv${r.lev}  战力 ${r.power}　英雄 ${city.partners.length}　任务 ${city.quests.length}`);
+      const main = await buildMainPage(canvas);
+      main.setCity(city);
+      page.hide(); // the login page gives way to the main city
     } catch {
       // the failing step is already on the page
     } finally {
