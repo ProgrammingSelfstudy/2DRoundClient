@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>特效图集预览</title>
+<style>
+:root{--bg:#f6f7f9;--fg:#1c2330;--card:#fff;--mut:#6b7280;--bd:#e5e7eb;--c1:#e9ebef;--c2:#fff}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1218;--fg:#e6e9ef;--card:#181d27;--mut:#8b94a5;--bd:#2a3140;--c1:#222833;--c2:#2c3340}}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 -apple-system,system-ui,sans-serif;padding:16px;max-width:1100px;margin-inline:auto}
+h1{font-size:20px;margin:0 0 4px}h2{font-size:17px;margin:24px 0 4px}.sub,.meta{color:var(--mut)}a{color:inherit}
+.page{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:10px;margin:10px 0}
+.sheet{background:repeating-conic-gradient(var(--c1) 0 25%,var(--c2) 0 50%) 0 0/20px 20px;border-radius:6px;overflow:auto;max-height:70vh}
+.sheet img{display:block;max-width:100%;height:auto}.zoom img{max-width:none}
+button{font:inherit;padding:2px 10px;border:1px solid var(--bd);background:var(--card);color:var(--fg);border-radius:6px;cursor:pointer}
+</style></head><body>
+<h1>特效图集预览</h1>
+<div class="sub">这里只显示拼好的素材页，看不到动画。<a href="index.html">返回进度页</a></div>
+<div id="root"></div>
+<script>
+const mb=n=>(n/1e6).toFixed(2)+' MB';
+fetch('preview/models.json').then(r=>r.json()).then(ms=>{
+document.getElementById('root').innerHTML=ms.map(m=>`<h2>${m.model}</h2>
+<div class="meta">${m.pages.length} 页，图片共 ${mb(m.pages.reduce((a,p)=>a+p.bytes,0))}，skel ${mb(m.bytes_skel)}</div>`+
+m.pages.map(p=>`<div class="page"><div class="meta">${p.action}　${p.w}×${p.h}　${mb(p.bytes)}　解码后显存 ${(p.w*p.h*4/1e6).toFixed(0)} MB${m.regions&&m.regions[p.action]?'　'+m.regions[p.action]+' 个切片':''}　<button onclick="this.parentNode.nextElementSibling.classList.toggle('zoom')">原始大小 / 适应宽度</button></div>
+<div class="sheet"><img loading="lazy" src="${p.file}" alt="${m.model} ${p.action}"></div></div>`).join('')).join('')});
+</script></body></html>
