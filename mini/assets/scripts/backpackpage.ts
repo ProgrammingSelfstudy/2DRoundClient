@@ -75,7 +75,12 @@ export async function buildBackpackPage(canvas: Node): Promise<BackpackPage> {
     }
     for (const [name, show] of [["left_arrow", page > 0], ["right_arrow", page < pages() - 1]] as const) built.byName.get(name)!.active = show;
   };
-  built.byName.get("left_arrow")!.on(Node.EventType.TOUCH_END, () => { if (page > 0) { page--; void render(); } });
+  // both arrows are the same picture pointing right; the original mirrors the left one in Lua. The arrow's anchor is its left edge, so
+  // mirroring it swings it to the left of its position by its own width: move it back
+  const left = built.byName.get("left_arrow")!;
+  left.setScale(-Math.abs(left.scale.x), left.scale.y, 1);
+  left.setPosition(left.position.x + left.getComponent(UITransform)!.width, left.position.y, 0);
+  left.on(Node.EventType.TOUCH_END, () => { if (page > 0) { page--; void render(); } });
   built.byName.get("right_arrow")!.on(Node.EventType.TOUCH_END, () => { if (page < pages() - 1) { page++; void render(); } });
 
   return {

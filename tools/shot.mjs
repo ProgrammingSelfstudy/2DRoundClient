@@ -3,7 +3,7 @@
 // The automation browser used elsewhere has no WebGL, so this is how a Cocos page gets looked at.
 //
 //   node tools/shot.mjs <url> <out.png> [waitSeconds=12] [width=720] [height=1280] [step ...]
-// steps run in order after the wait: click:x,y   type:text (into the focused field)   wait:seconds   shot:file.png (an extra screenshot)
+// steps run in order after the wait: click:x,y   drag:x1,y1,x2,y2 (press, move in steps, release)   type:text (into the focused field)   wait:seconds   shot:file.png (an extra screenshot)
 // eval:<js> (run in the page and print the result)
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -45,6 +45,12 @@ try {
     if (st.startsWith("click:")) {
       const [x, y] = st.slice(6).split(",").map(Number);
       for (const type of ["mousePressed", "mouseReleased"]) await call("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 });
+      await sleep(1000);
+    } else if (st.startsWith("drag:")) {
+      const [x1, y1, x2, y2] = st.slice(5).split(",").map(Number);
+      await call("Input.dispatchMouseEvent", { type: "mousePressed", x: x1, y: y1, button: "left", clickCount: 1 });
+      for (let i = 1; i <= 10; i++) await call("Input.dispatchMouseEvent", { type: "mouseMoved", x: x1 + ((x2 - x1) * i) / 10, y: y1 + ((y2 - y1) * i) / 10, button: "left", buttons: 1 });
+      await call("Input.dispatchMouseEvent", { type: "mouseReleased", x: x2, y: y2, button: "left", clickCount: 1 });
       await sleep(1000);
     } else if (st.startsWith("type:")) {
       await call("Input.insertText", { text: st.slice(5) });
