@@ -1,5 +1,5 @@
 {
-  "updated": "2026-11-06 02:55",
+  "updated": "2026-11-06 03:00",
   "steps": [
     {
       "name": "协议表和 TS 类型（从 protocols.json 生成）",
@@ -35,6 +35,16 @@
       "name": "第一个真实界面（登录页）",
       "state": "done",
       "note": "登录页：原版登录背景和 logo（运行时从发布版本加载）、单行账号密码输入（文字居中）、登录；无界面浏览器里真实输入并登录成功。未在真机软键盘上试过"
+    },
+    {
+      "name": "主城界面（Creator）",
+      "state": "doing",
+      "note": "布局来自原版 mainui_view.csb（25 张图）+ 左右功能图标栏；先看清结构再做"
+    },
+    {
+      "name": "Android / iOS App（Axmol + Lua）",
+      "state": "todo",
+      "note": "暂缓：先把网页版做好"
     }
   ]
 }
