@@ -17,6 +17,7 @@ export interface City {
   assets: Msg | undefined;    // 10302
   drama: Msg | undefined;     // 13000, main-line progress
   partners: Msg[];            // 11025
+  heroBag: Msg | undefined;   // 11025 itself: sort_type, num (the bag's capacity), buy_num
   quests: Msg[];              // 10403
   items: Msg[];               // 10500, the backpack's first tab
   frames: { cmd: number; fields: number }[]; // every command that answered
@@ -48,6 +49,7 @@ export function readCity(last: ReadonlyMap<number, Msg>): City {
     assets: last.get(10302),
     drama: last.get(13000),
     partners: (last.get(11025)?.partners as Msg[] | undefined) ?? [],
+    heroBag: last.get(11025),
     quests: (last.get(10403)?.quest_list as Msg[] | undefined) ?? [],
     items: (last.get(10500)?.item_list as Msg[] | undefined) ?? [],
     // Array.from, not [...last.entries()]: Creator down-levels spread of an iterator into something that yields undefined

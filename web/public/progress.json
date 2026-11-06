@@ -1,5 +1,5 @@
 {
-  "updated": "2026-11-06 12:10",
+  "updated": "2026-11-06 13:00",
   "steps": [
     {
       "name": "协议表和 TS 类型（从 protocols.json 生成）",
@@ -50,6 +50,11 @@
       "name": "背包界面（Creator）",
       "state": "doing",
       "note": "原版 backpack_window + goods_item 搭好：5 列 4 行、翻页箭头、图标和数量（道具表 tables/items.json 随资源发布）；数据来自 10500。待做：另外两个页签 10501/10502、点格子看详情、一键出售；?bagdemo=1 可用假数据看效果"
+    },
+    {
+      "name": "英雄列表（Creator）",
+      "state": "doing",
+      "note": "原版 hero_bag_window 搭好，英雄格按原版 HeroExhibitionItem 的规则画（品质框、头像、阵营、星级、等级），可拖动滚动，数量 n/容量；英雄表 tables/partners.json 随资源发布。待做：顶部页签和阵营筛选、点英雄进详情、6 星以上的星标；?herodemo=1 可用假数据看效果"
     },
     {
       "name": "Android / iOS App（Axmol + Lua）",

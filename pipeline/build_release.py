@@ -28,7 +28,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from csb_tree import tree  # noqa: E402
 
 LAYOUTS = {"boot": ["login/user_panel.csb"], "mainui": ["mainui/mainui_view.csb"],
-           "backpack": ["backpack/backpack_window.csb", "backpack/goods_item.csb"]}  # group -> csb paths (under the recovered csb directory) shipped as layouts
+           "backpack": ["backpack/backpack_window.csb", "backpack/goods_item.csb"],
+           "hero": ["hero/hero_bag_window.csb"]}  # group -> csb paths (under the recovered csb directory) shipped as layouts
 
 
 def group_of(path):
@@ -40,6 +41,12 @@ def group_of(path):
         return "mainui"
     if path.startswith("resource/backpack/"):
         return "backpack"
+    if path.startswith("resource/herobag/"):
+        return "herobag"
+    if path.startswith("resource/hero/"):
+        return "hero"
+    if path.startswith("resource/headicon/"):
+        return "icons-head"
     if path.startswith("resource/item/"):
         return "icons-item"
     return None
@@ -55,6 +62,12 @@ def logical_image(path, group):
         return "ui/mainui/" + name
     if group == "backpack":
         return "ui/backpack/" + name
+    if group == "herobag":
+        return "ui/herobag/" + name
+    if group == "hero":
+        return "ui/hero/" + name
+    if group == "icons-head":
+        return "icons/head/" + name
     if group == "icons-item":
         return "icons/item/" + name
     raise SystemExit(f"no naming rule for group {group!r}; add one to logical_image() first")
@@ -141,6 +154,11 @@ def main(assets, version, groups):
         from items_table import table
         lua = f"{assets}/source/restored-source/outputs/readable-source/lua/ePoCrKQkWA3vpiOwu2oNfOh02MOeNheW"
         put("tables/items.json", json.dumps(table(lua), ensure_ascii=False, separators=(",", ":")).encode(), "json", "icons-item", "item_data*.lua")
+
+    if "icons-head" in groups:  # bid and star -> head picture, name, camp
+        from partners_table import table as partners
+        lua = f"{assets}/source/restored-source/outputs/readable-source/lua/ePoCrKQkWA3vpiOwu2oNfOh02MOeNheW"
+        put("tables/partners.json", json.dumps(partners(lua), ensure_ascii=False, separators=(",", ":")).encode(), "json", "icons-head", "partner_data.lua")
 
     manifest = {"version": version, "platform": "web", "files": files}
     json.dump(manifest, open(f"{out}/manifest.web.json", "w"), ensure_ascii=False, indent=1)
