@@ -35,6 +35,7 @@ export async function loadMainCity(session: Session, step: Step): Promise<City> 
     step(name, "done", `收到 ${city.frames.length} 种回复；英雄 ${city.partners.length}，任务 ${city.quests.length}`);
     return city;
   } catch (e) {
+    console.error(`${name}: ${(e as Error).stack ?? e}`);
     step(name, "fail", (e as Error).message);
     throw e;
   }
@@ -47,6 +48,7 @@ export function readCity(last: ReadonlyMap<number, Msg>): City {
     drama: last.get(13000),
     partners: (last.get(11025)?.partners as Msg[] | undefined) ?? [],
     quests: (last.get(10403)?.quest_list as Msg[] | undefined) ?? [],
-    frames: [...last.entries()].map(([cmd, m]) => ({ cmd, fields: Object.keys(m).length })).sort((a, b) => a.cmd - b.cmd)
+    // Array.from, not [...last.entries()]: Creator down-levels spread of an iterator into something that yields undefined
+    frames: Array.from(last, ([cmd, m]) => ({ cmd, fields: Object.keys(m).length })).sort((a, b) => a.cmd - b.cmd)
   };
 }
