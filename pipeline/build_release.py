@@ -41,6 +41,8 @@ def group_of(path):
         return "mainui"
     if path.startswith("resource/backpack/"):
         return "backpack"
+    if path.startswith("resource/centerscene/"):
+        return "centerscene"
     if path.startswith("resource/herobag/"):
         return "herobag"
     if path.startswith("resource/hero/"):
@@ -62,6 +64,8 @@ def logical_image(path, group):
         return "ui/mainui/" + name
     if group == "backpack":
         return "ui/backpack/" + name
+    if group == "centerscene":
+        return "bg/" + name
     if group == "herobag":
         return "ui/herobag/" + name
     if group == "hero":
