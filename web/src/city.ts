@@ -18,6 +18,7 @@ export interface City {
   drama: Msg | undefined;     // 13000, main-line progress
   partners: Msg[];            // 11025
   quests: Msg[];              // 10403
+  items: Msg[];               // 10500, the backpack's first tab
   frames: { cmd: number; fields: number }[]; // every command that answered
 }
 
@@ -48,6 +49,7 @@ export function readCity(last: ReadonlyMap<number, Msg>): City {
     drama: last.get(13000),
     partners: (last.get(11025)?.partners as Msg[] | undefined) ?? [],
     quests: (last.get(10403)?.quest_list as Msg[] | undefined) ?? [],
+    items: (last.get(10500)?.item_list as Msg[] | undefined) ?? [],
     // Array.from, not [...last.entries()]: Creator down-levels spread of an iterator into something that yields undefined
     frames: Array.from(last, ([cmd, m]) => ({ cmd, fields: Object.keys(m).length })).sort((a, b) => a.cmd - b.cmd)
   };

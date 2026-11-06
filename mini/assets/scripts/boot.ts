@@ -4,6 +4,7 @@ import { Canvas, Director, ResolutionPolicy, director, profiler, screen, view } 
 import { loadRelease } from "./cdn";
 import { buildLoginPage } from "./loginpage";
 import { buildMainPage } from "./mainpage";
+import { buildBackpackPage } from "./backpackpage";
 import { GameSocket } from "./shared/net";
 import { Session } from "./shared/session";
 import { enterGame, httpRegister, randomCredentials } from "./shared/login";
@@ -68,8 +69,14 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
       const city = await loadMainCity(session, () => {});
       const r = city.role as Record<string, unknown>;
       page.setStatus(`${r.name}  Lv${r.lev}  战力 ${r.power}　英雄 ${city.partners.length}　任务 ${city.quests.length}`);
-      const main = await buildMainPage(canvas);
+      const bag = await buildBackpackPage(canvas);
+      // dev convenience: ?bagdemo=1 fills the backpack with made-up stacks, to look at icons and paging without an account that owns items
+      const demo = q.get("bagdemo") === "1" ? [1, 3, 10001, 99955, 10002, 10003, 20001, 30001, 40001, 50001, 60001, 70001, 80001, 90001, 11001, 12001, 13001, 14001, 15001, 16001, 17001, 18001, 19001].map((base_id, i) => ({ base_id, quantity: 1 + i * 7 })) : null;
+      bag.setItems(demo ?? (city.items as unknown as { base_id: number; quantity: number }[]));
+      const main = await buildMainPage(canvas); // built after the pages so the top bar and the tabs stay on top of them
       main.setCity(city);
+      // tab 3 is the backpack, tab 4 the main city; the other tabs have no page yet
+      main.onTab(t => bag.show(t === 3));
       page.hide(); // the login page gives way to the main city
     } catch {
       // the failing step is already on the page
