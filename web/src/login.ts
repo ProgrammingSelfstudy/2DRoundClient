@@ -30,6 +30,29 @@ export async function httpLogin(account: string, password: string): Promise<stri
   throw new Error(LOGIN_ERRORS[msg] ?? `登录服务返回：${text.slice(0, 100)}`);
 }
 
+const REG_ERRORS: Record<string, string> = { "200": "账号已存在", "203": "账号只能用 6 到 12 位字母或数字", "204": "密码要 6 到 16 位" };
+
+// the platform registration of the original client: "205" means registered
+export async function httpRegister(account: string, password: string): Promise<void> {
+  const q = new URLSearchParams({ username: account, password });
+  const text = await (await fetch(`${HTTP_BASE}/index.php/userlogin/userRegs?${q}`)).text();
+  const code = luaStr(text, "msg") ?? "";
+  if (code !== "205") throw new Error(REG_ERRORS[code] ?? `注册服务返回：${text.slice(0, 100)}`);
+}
+
+// "一键注册": the client makes up an account and a password itself and shows them to the player
+export function randomCredentials(): { account: string; password: string } {
+  const pick = (n: number) => {
+    const chars = "abcdefghjkmnpqrstuvwxyz23456789";
+    const bytes = new Uint8Array(n);
+    crypto.getRandomValues(bytes);
+    let out = "";
+    for (let i = 0; i < n; i++) out += chars[bytes[i] % chars.length];
+    return out;
+  };
+  return { account: "u" + pick(8), password: pick(8) };
+}
+
 export async function serverList(account: string): Promise<Server[]> {
   const q = new URLSearchParams({ account, platform: PLATFORM, channel: PLATFORM, srv: "" });
   const text = await (await fetch(`${HTTP_BASE}/api/serverlist?${q}`)).text();

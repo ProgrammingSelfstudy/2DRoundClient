@@ -1,6 +1,6 @@
 // Resources come from the CDN at run time, never from the project: the server (/client/config) says where the release manifest is, the
 // manifest maps a logical path ("boot/loading_bg.webp") to a file named by its content hash. See docs/PATHS.md.
-import { ImageAsset, SpriteFrame, Texture2D, assetManager } from "cc";
+import { ImageAsset, Rect, Size, SpriteFrame, Texture2D, Vec2, assetManager } from "cc";
 
 interface ClientConfig {
   cdn_base: string;
@@ -39,23 +39,70 @@ export function fileUrl(logical: string): string {
   return `${cdnBase}/f/${f.hash.slice(0, 2)}/${f.hash}.${f.ext}`;
 }
 
-// a sprite frame for a logical path; loaded once and shared
-export function spriteFrame(logical: string): Promise<SpriteFrame> {
-  let p = frames.get(logical);
+const pages = new Map<string, Promise<Texture2D>>();
+
+// the texture of an image in the manifest; loaded once and shared by every frame cut from it
+export function texture(logical: string): Promise<Texture2D> {
+  let p = pages.get(logical);
   if (!p) {
-    p = new Promise<SpriteFrame>((resolve, reject) => {
+    p = new Promise<Texture2D>((resolve, reject) => {
       const f = manifest?.files[logical];
       if (!f) return reject(new Error(`资源清单里没有 ${logical}`));
       assetManager.loadRemote<ImageAsset>(fileUrl(logical), { ext: "." + f.ext }, (err, img) => {
         if (err || !img) return reject(err ?? new Error(`加载失败 ${logical}`));
         const tex = new Texture2D();
         tex.image = img;
-        const sf = new SpriteFrame();
-        sf.texture = tex;
-        resolve(sf);
+        resolve(tex);
       });
+    });
+    pages.set(logical, p);
+  }
+  return p;
+}
+
+// a whole image as one sprite frame
+export function spriteFrame(logical: string): Promise<SpriteFrame> {
+  let p = frames.get(logical);
+  if (!p) {
+    p = texture(logical).then(tex => {
+      const sf = new SpriteFrame();
+      sf.texture = tex;
+      return sf;
     });
     frames.set(logical, p);
   }
   return p;
+}
+
+export async function loadJson<T>(logical: string): Promise<T> {
+  const res = await fetch(fileUrl(logical));
+  if (!res.ok) throw new Error(`${logical}: ${res.status}`);
+  return (await res.json()) as T;
+}
+
+interface AtlasFrame { x: number; y: number; w: number; h: number; rotated: boolean; ox: number; oy: number; sw: number; sh: number; }
+interface Atlas { texture: string; size: number[]; frames: { [name: string]: AtlasFrame }; }
+const atlases = new Map<string, Promise<Atlas>>();
+
+// One frame of an atlas ("ui/common/common.json", "common_1002.png"). `cap` is the nine-slice middle rectangle (x, y, w, h, measured from the
+// top-left of the frame, as Cocos Studio writes it); with it the frame stretches without distorting its corners.
+export async function atlasFrame(atlas: string, name: string, cap?: number[]): Promise<SpriteFrame> {
+  let a = atlases.get(atlas);
+  if (!a) atlases.set(atlas, (a = loadJson<Atlas>(atlas)));
+  const at = await a;
+  const f = at.frames[name];
+  if (!f) throw new Error(`${atlas} 里没有 ${name}`);
+  const sf = new SpriteFrame();
+  sf.texture = await texture(at.texture);
+  sf.rect = new Rect(f.x, f.y, f.w, f.h);
+  sf.rotated = f.rotated;
+  sf.offset = new Vec2(f.ox, f.oy);
+  sf.originalSize = new Size(f.sw, f.sh);
+  if (cap) {
+    sf.insetLeft = cap[0];
+    sf.insetRight = f.w - cap[0] - cap[2];
+    sf.insetTop = cap[1];
+    sf.insetBottom = f.h - cap[1] - cap[3];
+  }
+  return sf;
 }

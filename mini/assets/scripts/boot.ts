@@ -5,7 +5,7 @@ import { loadRelease } from "./cdn";
 import { buildLoginPage } from "./loginpage";
 import { GameSocket } from "./shared/net";
 import { Session } from "./shared/session";
-import { enterGame } from "./shared/login";
+import { enterGame, httpRegister, randomCredentials } from "./shared/login";
 import { loadMainCity } from "./shared/city";
 
 // The game is a 720x1280 portrait. A window wider than that (a desktop browser) shows the whole design centred with bars at the sides;
@@ -52,7 +52,7 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
   const sock = new GameSocket();
   const session = new Session(sock);
   const url = `ws://${location.hostname}:8802/ws`;
-  page.onLogin(async () => {
+  const run = async () => {
     const acct = page.account.string.trim();
     const pass = page.password.string;
     if (!acct || !pass) return page.setStatus("请输入账号和密码", true);
@@ -72,6 +72,26 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
     } finally {
       page.setBusy(false);
     }
+  };
+  page.onLogin(run);
+  // 一键注册: make up an account and a password, register them, show them in the fields and log in
+  page.onRegister(async () => {
+    page.setBusy(true);
+    try {
+      const c = randomCredentials();
+      page.setStatus("注册中…");
+      await httpRegister(c.account, c.password);
+      page.account.string = c.account;
+      page.password.string = c.password;
+      page.setNote(`已注册　账号 ${c.account}　密码 ${c.password}\n请记下，之后用它们登录`);
+      page.setStatus("注册成功，登录中…");
+    } catch (e) {
+      page.setStatus(`注册失败：${(e as Error).message}`, true);
+      page.setBusy(false);
+      return;
+    }
+    page.setBusy(false);
+    await run();
   });
   if (q.get("autologin") === "1") page.account.string && page.password.string && page.password.node.emit("editing-return");
 });
