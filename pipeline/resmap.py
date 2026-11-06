@@ -8,6 +8,7 @@ candidate counts only when its hash exists in the package.
 
   python3 pipeline/resmap.py <restored-source-root> <audit.json> <out-dir>
 """
+import itertools
 import json
 import os
 import re
@@ -16,7 +17,8 @@ import plistlib
 
 sys.dont_write_bytecode = True
 
-SPINE_DIR = "v9o8qm1Y40cbOAlh6LDp0kMDi5CzXlsO"  # util/pathtool.lua PathTool.getSpineByName
+PRODUCT_CAP = 8_000_000
+SPINE_DIR ="v9o8qm1Y40cbOAlh6LDp0kMDi5CzXlsO"  # util/pathtool.lua PathTool.getSpineByName
 PATH_RE = re.compile(rb'["\']([A-Za-z0-9_\-./ ]{3,160}\.(?:png|jpg|plist|csb|atlas|skel|json|mp3|ttf|fnt|fsh|db))["\']')
 STR_RE = re.compile(rb'[A-Za-z0-9_\-./]{3,160}\.(?:png|jpg|plist|csb|atlas|skel|json|mp3|ttf|fnt)')
 
@@ -144,6 +146,8 @@ def main(root, audit_path, out_dir):
     values = [str(i) for i in range(100001)] + sorted(idents)
     small = [str(i) for i in range(301)]
     tmpl_before, skipped = len(found), []
+    res_dirs = {p.split("/")[1] for p in found.values() if p.startswith("resource/") and p.count("/") >= 2}
+    model_like = sorted(i for i in idents | in_data | in_lua if re.fullmatch(r"[A-Za-z]?\d{3,7}", i))
     for t in sorted(templates):
         slots = re.findall(r"%[sd]", t)
         if len(slots) == 1:
@@ -155,6 +159,33 @@ def main(root, audit_path, out_dir):
             for a in small:
                 for b in small:
                     try_path(pre + a + mid + b + post, "template")
+        elif t.startswith("resource/") or t.startswith("scene/"):
+            # Several placeholders: a %d takes a small integer; a %s that is a directory takes a known directory of the same family
+            # (resource/<dir>/...) or a model-like id; the %s of a file name takes an integer or any identifier. Skip a template
+            # whose product is beyond the cap (it is then listed under "not filled").
+            parts = re.split(r"(%[sd])", t)
+            lists = []
+            for i, part in enumerate(parts):
+                if part not in ("%s", "%d"):
+                    continue
+                is_dir = parts[i + 1].startswith("/")
+                if part == "%d":
+                    lists.append(small[:51])
+                elif is_dir and t.startswith("resource/%s/"):
+                    lists.append(sorted(res_dirs))
+                elif is_dir:
+                    lists.append(model_like)
+                else:
+                    lists.append(values[:3001] + sorted(idents))
+            total = 1
+            for l in lists:
+                total *= len(l)
+            if total > PRODUCT_CAP:
+                skipped.append(t + f" (x{total})")
+                continue
+            for combo in itertools.product(*lists):
+                it = iter(combo)
+                try_path("".join(next(it) if x in ("%s", "%d") else x for x in parts), "template")
         else:
             skipped.append(t)
     print(f"templates: {len(templates)} found, {len(templates) - len(skipped)} filled, resolved {len(found) - tmpl_before} files")
