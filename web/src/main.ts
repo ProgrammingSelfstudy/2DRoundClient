@@ -11,6 +11,7 @@ const session = new Session(sock);
 const url = new URLSearchParams(location.search).get("ws") ?? `ws://${location.hostname}:8802/ws`;
 
 $("url").textContent = url;
+($("uilink") as HTMLAnchorElement).href = `http://${location.hostname}:8767/`;
 $("schema").textContent = `${Object.keys(send).length} 个请求，${Object.keys(recv).length} 个响应`;
 sock.onState = s => {
   $("state").textContent = s.replace("closed-ok", "已断开");

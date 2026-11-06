@@ -52,8 +52,13 @@ function input(parent: Node, y: number, placeholder: string, password: boolean, 
   eb.textLabel = text;
   eb.placeholderLabel = hint;
   eb.maxLength = 32;
+  // the default input mode (ANY) is a multi-line box: text sits at the top and Enter adds a new line. These are single-line fields.
+  eb.inputMode = EditBox.InputMode.SINGLE_LINE;
+  eb.returnType = EditBox.KeyboardReturnType.DONE;
   eb.inputFlag = password ? EditBox.InputFlag.PASSWORD : EditBox.InputFlag.DEFAULT;
   eb.string = value;
+  // EditBox sets its text label to top alignment while it initialises (the placeholder label is left alone), so centre it afterwards
+  text.verticalAlign = VerticalTextAlignment.CENTER;
   parent.addChild(n);
   return eb;
 }
@@ -90,20 +95,20 @@ export async function buildLoginPage(canvas: Node, account: string, password: st
   } catch (e) {
     console.error("login logo:", e);
   }
-  const shade = child(root, "shade", 0, -250, 620, 520);
+  const shade = child(root, "shade", 0, -180, 620, 520);
   roundRect(shade, 620, 520, 28, rgba(0, 0, 0, 120));
 
-  const acct = input(root, -110, "账号", false, account);
-  const pass = input(root, -220, "密码", true, password);
+  const acct = input(root, -40, "账号", false, account);
+  const pass = input(root, -150, "密码", true, password);
 
-  const button = child(root, "button", 0, -345, 380, 92);
+  const button = child(root, "button", 0, -275, 380, 92);
   roundRect(button, 380, 92, 46, rgba(255, 150, 30));
   const buttonLabel = label(button, "登录", 40, rgba(255, 255, 255), 380, 92);
 
   const status = label(root, "", 28, rgba(255, 255, 255), 600, 80);
-  status.node.setPosition(0, -440, 0);
+  status.node.setPosition(0, -372, 0);
   const footer = label(root, "", 22, rgba(255, 255, 255, 200), 600, 40);
-  footer.node.setPosition(0, -488, 0); // inside the panel: the background has a logo at the bottom
+  footer.node.setPosition(0, -420, 0); // inside the panel: the background has a logo at the bottom
 
   let busy = false;
   let handler = () => {};
