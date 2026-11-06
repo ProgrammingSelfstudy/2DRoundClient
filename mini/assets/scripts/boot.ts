@@ -1,6 +1,6 @@
 // Boot: runs when the project scripts load. The scene holds a Canvas and a camera; the pages are built in code.
 // Flow: ask the server for the release -> load the manifest -> show the login page -> log in with the shared network layer.
-import { Canvas, Director, ResolutionPolicy, director, profiler, view } from "cc";
+import { Canvas, Director, ResolutionPolicy, director, profiler, screen, view } from "cc";
 import { loadRelease } from "./cdn";
 import { buildLoginPage } from "./loginpage";
 import { GameSocket } from "./shared/net";
@@ -8,9 +8,27 @@ import { Session } from "./shared/session";
 import { enterGame } from "./shared/login";
 import { loadMainCity } from "./shared/city";
 
+// The game is a 720x1280 portrait. A window wider than that (a desktop browser) shows the whole design centred with bars at the sides;
+// a narrower, taller one (a phone) fills the width and shows a little more height.
+function fitView() {
+  const ws = screen.windowSize;
+  const wider = ws.width / ws.height > 720 / 1280;
+  view.setDesignResolutionSize(720, 1280, wider ? ResolutionPolicy.SHOW_ALL : ResolutionPolicy.FIXED_WIDTH);
+  frameStyle(wider);
+}
+
+// On a wide window the canvas is clipped to the centred portrait column with rounded corners, the rest shows a dark page background;
+// on a phone-shaped window there is nothing to clip. The column is as wide as the design at the window's height (100vh * 720/1280).
+function frameStyle(wider: boolean) {
+  const canvasEl = document.getElementById("GameCanvas");
+  if (!canvasEl) return;
+  document.body.style.backgroundColor = wider ? "#14141c" : "";
+  canvasEl.style.clipPath = wider ? "inset(0 calc((100% - 100vh * 0.5625) / 2) round 28px)" : "none";
+}
+
 director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
   profiler.hideStats();
-  view.setDesignResolutionSize(720, 1280, ResolutionPolicy.FIXED_WIDTH);
+  fitView();
   const canvas = director.getScene()!.getComponentInChildren(Canvas)!.node;
 
   // dev conveniences, so a page can be checked without typing: ?acct=..&pass=..&autologin=1
@@ -23,6 +41,7 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
   let relError = "";
   try { rel = await loadRelease(); } catch (e) { relError = `取不到资源版本：${(e as Error).message}`; }
   const page = await buildLoginPage(canvas, account, q.get("pass") ?? "");
+  screen.on("window-resize", () => { fitView(); page.relayout(); });
   if (rel) {
     page.setFooter(`资源版本 ${rel.version}`);
     if (rel.notice) page.setStatus(rel.notice);

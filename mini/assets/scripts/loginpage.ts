@@ -1,5 +1,5 @@
 // The login page. 720x1280 portrait like the original; everything is built in code from CDN images and Graphics, so the scene stays empty.
-import { Color, EditBox, Graphics, HorizontalTextAlignment, Label, Node, Sprite, UITransform, VerticalTextAlignment } from "cc";
+import { Color, EditBox, Graphics, HorizontalTextAlignment, Label, Node, Sprite, UITransform, VerticalTextAlignment, view } from "cc";
 import { spriteFrame } from "./cdn";
 
 export const W = 720;
@@ -69,19 +69,29 @@ export interface LoginPage {
   setStatus(text: string, error?: boolean): void;
   setBusy(busy: boolean): void;
   onLogin(f: () => void): void;
+  relayout(): void; // call after the window size changed
   setFooter(text: string): void;
 }
 
 export async function buildLoginPage(canvas: Node, account: string, password: string): Promise<LoginPage> {
   const root = child(canvas, "login", 0, 0, W, H);
 
+  // the background covers the whole visible area (cropped, not stretched), which is taller than the design on a tall phone
+  let bgNode: Node | null = null;
+  const cover = () => {
+    if (!bgNode) return;
+    const vs = view.getVisibleSize();
+    const k = Math.max(vs.width / W, vs.height / H);
+    bgNode.getComponent(UITransform)!.setContentSize(W * k, H * k);
+  };
   // background and logo come from the release manifest; the page still works (plain colour) if one cannot be loaded
   try {
     const bg = child(root, "bg", 0, 0, W, H);
+    bgNode = bg;
     const s = bg.addComponent(Sprite);
     s.sizeMode = Sprite.SizeMode.CUSTOM;
     s.spriteFrame = await spriteFrame("boot/first_loading_bg.webp");
-    bg.getComponent(UITransform)!.setContentSize(W, H);
+    cover();
   } catch (e) {
     roundRect(child(root, "bg", 0, 0, W, H), W, H, 0, rgba(20, 40, 80));
     console.error("login background:", e);
@@ -120,6 +130,7 @@ export async function buildLoginPage(canvas: Node, account: string, password: st
     setStatus: (text, error = false) => { status.string = text; status.color = error ? rgba(255, 110, 110) : rgba(255, 255, 255); },
     setBusy: b => { busy = b; buttonLabel.string = b ? "登录中…" : "登录"; roundRect(button, 380, 92, 46, b ? rgba(170, 170, 170) : rgba(255, 150, 30)); },
     onLogin: f => { handler = f; },
+    relayout: cover,
     setFooter: t => { footer.string = t; }
   };
 }
