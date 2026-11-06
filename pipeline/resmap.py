@@ -17,7 +17,7 @@ import plistlib
 
 sys.dont_write_bytecode = True
 
-PRODUCT_CAP = 8_000_000
+PRODUCT_CAP = 2_000_000
 SPINE_DIR ="v9o8qm1Y40cbOAlh6LDp0kMDi5CzXlsO"  # util/pathtool.lua PathTool.getSpineByName
 PATH_RE = re.compile(rb'["\']([A-Za-z0-9_\-./ ]{3,160}\.(?:png|jpg|plist|csb|atlas|skel|json|mp3|ttf|fnt|fsh|db))["\']')
 STR_RE = re.compile(rb'[A-Za-z0-9_\-./]{3,160}\.(?:png|jpg|plist|csb|atlas|skel|json|mp3|ttf|fnt)')

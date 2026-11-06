@@ -15,9 +15,9 @@ import sys
 
 sys.dont_write_bytecode = True
 PNG_RATIO = 0.21
-BOOT_DIRS = {"login", "common"}                          # what the first screen needs
-CORE_DIRS = {"item", "headicon", "headcircle", "functionicon", "skillicon", "common"}  # small icons used on every screen
-MISC_LIMIT = 200_000                                      # module dirs smaller than this share "ui-misc"
+CORE_BASE_DIRS = {"common"}   # common.plist is used by 947 of the 1092 layouts: always loaded
+ICON_DIRS = {"item", "headicon", "headcircle", "functionicon", "skillicon", "partner"}  # icons picked by id: fetched one file at a time, on demand
+MISC_LIMIT = 0                                            # a group is only a list, so a small module keeps its own group (no "ui-misc")
 BIG_GROUP = 4_000_000                                     # a group above this is flagged for a closer look
 BOOT_BUDGET = 1_000_000                                   # images in the first package; the 4 MB also holds engine and code
 
@@ -29,10 +29,12 @@ def group_of(path):
         return ("hero-" if m[0] == "H" else "fx-") + m
     if parts[0] == "resource" and len(parts) >= 3:
         d = parts[1]
-        if d in BOOT_DIRS and d == "login":
+        if d == "login":
             return "boot"
-        if d in CORE_DIRS:
-            return "ui-core"
+        if d in CORE_BASE_DIRS:
+            return "core-base"
+        if d in ICON_DIRS:
+            return "icons-" + d
         if d == "bigbg":
             return "bg-" + (parts[2] if len(parts) > 3 else "main")
         return "ui-" + d
@@ -75,7 +77,8 @@ def main(root, rep):
     for c in content.values():
         if len(c["groups"]) > 1:
             c["groups"].discard("unassigned")
-        for always in ("boot", "ui-core"):  # always loaded: content any other group also needs simply lives there
+        # always available (boot, core-base, the icon pools): content any other group also needs simply lives there
+        for always in ["boot", "core-base"] + sorted(g for g in c["groups"] if g.startswith("icons-")):
             if always in c["groups"]:
                 c["groups"] = {always}
                 break
@@ -119,18 +122,20 @@ def main(root, rep):
         for f in ("files", "bytes", "proj"):
             misc[f] += v[f]
         misc["paths"] += v["paths"]
+    if not misc["files"]:
+        groups.pop("ui-misc")
     boot = groups.get("boot", {"proj": 0})
     out = {"png_ratio": PNG_RATIO, "families": families, "groups": {k: {"files": v["files"], "bytes": v["bytes"], "proj": round(v["proj"])} for k, v in groups.items()}}
     json.dump(out, open(f"{rep}/bundles.json", "w"))
     json.dump({k: v["paths"] for k, v in groups.items() if k != "unassigned"}, open(f"{rep}/bundle_files.json", "w"))
     kinds = collections.Counter()
     for k, v in groups.items():
-        kinds["family" if "+" in k else "hero" if k.startswith("hero-") else "fx" if k.startswith("fx-") else k if k in ("boot", "ui-core", "unassigned", "ui-misc") else
+        kinds["family" if "+" in k else "hero" if k.startswith("hero-") else "fx" if k.startswith("fx-") else "icons" if k.startswith("icons-") else k if k in ("boot", "core-base", "unassigned", "ui-misc") else
               "bg" if k.startswith("bg-") else "ui-module" if k.startswith("ui-") else "other"] += 1
     mb = lambda n: f"{n / 1e6:.1f}"
     placed = {k: v for k, v in groups.items() if k != "unassigned"}
     tot_b, tot_p = sum(v["bytes"] for v in placed.values()), sum(v["proj"] for v in placed.values())
-    big = sorted(((k, v) for k, v in placed.items() if v["proj"] > BIG_GROUP), key=lambda kv: -kv[1]["proj"])
+    big = sorted(((k, v) for k, v in placed.items() if v["proj"] > BIG_GROUP and not k.startswith("icons-")), key=lambda kv: -kv[1]["proj"])
     md = ["# 分包方案（计划，不改任何文件）\n",
           f"- 分组：{len(placed)} 个已放置的组 + 1 个未归属组。按内容 hash 去重，相同内容只算一次，共用同一内容的组合并成家族组（名字带 +N），共 {len(families)} 个家族。",
           f"- 体积口径：PNG 按样本实测比例 {PNG_RATIO} 折算成 WebP（只测了 8 张），其余按原样。skel 和 atlas 文件随模型计入。",
@@ -141,7 +146,7 @@ def main(root, rep):
           "## 体积最大的 25 个组\n", "| 组 | 文件数 | 原 MB | 预计 MB |", "|---|---|---|---|"]
     for k, v in sorted(groups.items(), key=lambda kv: -kv[1]["proj"])[:25]:
         md.append(f"| {k} | {v['files']} | {mb(v['bytes'])} | {mb(v['proj'])} |")
-    md += [f"\n## 单组超过 {mb(BIG_GROUP)} MB 的（{len(big)} 个）：要单独处理，不能整组预载\n"]
+    md += [f"\n## 单组超过 {mb(BIG_GROUP)} MB 的（{len(big)} 个）：要单独处理，不能整组预载（icons-* 按文件按需取，不在此列）\n"]
     for k, v in big:
         md.append(f"- {k}：{mb(v['proj'])} MB（{v['files']} 个文件）")
     open(f"{rep}/BUNDLES.md", "w").write("\n".join(md) + "\n")
