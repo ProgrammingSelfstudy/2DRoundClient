@@ -1,0 +1,8 @@
+{
+  "name": "2dround-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-strip-types --no-warnings --test test/captures.test.ts"
+  }
+}
