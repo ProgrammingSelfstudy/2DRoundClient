@@ -2,7 +2,7 @@
 """Plan the download groups for the new clients. Read-only: it writes a plan from the reports, it moves nothing.
 
 A group is a set of files the client prefetches together; every file is addressed by its content hash on the CDN, so a group is a list
-in the manifest, not an archive. Identical content is counted once; content that more than one group needs goes to "shared".
+in the manifest, not an archive. Identical content is counted once; groups that need the same content merge into one family group.
 Sizes are projected: a png counts 0.21 of its bytes (the ratio measured on 8 samples when converted to webp q80), everything else
 counts as it is. Images whose path could not be recovered are listed under "unassigned" and are not placed anywhere.
 
@@ -61,9 +61,40 @@ def main(root, rep):
             c["paths"].append(p)
         else:
             c["groups"].add("unassigned")
+    # Groups that need the same content are loaded together anyway (the forms of one hero share atlas pages), so they merge into one
+    # family group instead of a "shared" bucket every group would depend on. An unnamed copy of content that has a named copy is placed.
+    parent = {}
+
+    def find(x):
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for c in content.values():
+        if len(c["groups"]) > 1:
+            c["groups"].discard("unassigned")
+        for always in ("boot", "ui-core"):  # always loaded: content any other group also needs simply lives there
+            if always in c["groups"]:
+                c["groups"] = {always}
+                break
+        gs = sorted(c["groups"])
+        for other in gs[1:]:
+            parent[find(other)] = find(gs[0])
+    members = collections.defaultdict(set)
+    for c in content.values():
+        for g in c["groups"]:
+            members[find(g)].add(g)
+    name_of = {}
+    for root, ms in members.items():
+        ms = sorted(ms)
+        for g in ms:
+            name_of[g] = ms[0] if len(ms) == 1 else f"{ms[0]}+{len(ms) - 1}"
+    families = {name_of[ms[0]]: ms for ms in (sorted(v) for v in members.values()) if len(ms) > 1}
     groups = collections.defaultdict(lambda: {"files": 0, "bytes": 0, "proj": 0.0, "paths": []})
     for key, c in content.items():
-        g = next(iter(c["groups"])) if len(c["groups"]) == 1 else "shared"
+        g = name_of[next(iter(c["groups"]))]
         x = groups[g]
         x["files"] += 1
         x["bytes"] += c["bytes"]
@@ -75,7 +106,7 @@ def main(root, rep):
     for h, p in found.items():
         if p.endswith((".skel", ".atlas")) and h in on_disk:
             n = os.path.getsize(os.path.join(pkg, on_disk[h]))
-            g = groups[group_of(p)]
+            g = groups[name_of.get(group_of(p), group_of(p))]
             g["files"] += 1
             g["bytes"] += n
             g["proj"] += n
@@ -89,19 +120,19 @@ def main(root, rep):
             misc[f] += v[f]
         misc["paths"] += v["paths"]
     boot = groups.get("boot", {"proj": 0})
-    out = {"png_ratio": PNG_RATIO, "groups": {k: {"files": v["files"], "bytes": v["bytes"], "proj": round(v["proj"])} for k, v in groups.items()}}
+    out = {"png_ratio": PNG_RATIO, "families": families, "groups": {k: {"files": v["files"], "bytes": v["bytes"], "proj": round(v["proj"])} for k, v in groups.items()}}
     json.dump(out, open(f"{rep}/bundles.json", "w"))
     json.dump({k: v["paths"] for k, v in groups.items() if k != "unassigned"}, open(f"{rep}/bundle_files.json", "w"))
     kinds = collections.Counter()
     for k, v in groups.items():
-        kinds["hero" if k.startswith("hero-") else "fx" if k.startswith("fx-") else k if k in ("boot", "ui-core", "shared", "unassigned", "ui-misc") else
+        kinds["family" if "+" in k else "hero" if k.startswith("hero-") else "fx" if k.startswith("fx-") else k if k in ("boot", "ui-core", "unassigned", "ui-misc") else
               "bg" if k.startswith("bg-") else "ui-module" if k.startswith("ui-") else "other"] += 1
     mb = lambda n: f"{n / 1e6:.1f}"
     placed = {k: v for k, v in groups.items() if k != "unassigned"}
     tot_b, tot_p = sum(v["bytes"] for v in placed.values()), sum(v["proj"] for v in placed.values())
     big = sorted(((k, v) for k, v in placed.items() if v["proj"] > BIG_GROUP), key=lambda kv: -kv[1]["proj"])
     md = ["# 分包方案（计划，不改任何文件）\n",
-          f"- 分组：{len(placed)} 个已放置的组 + 1 个未归属组。按内容 hash 去重，相同内容只算一次，多个组共用的放进 shared。",
+          f"- 分组：{len(placed)} 个已放置的组 + 1 个未归属组。按内容 hash 去重，相同内容只算一次，共用同一内容的组合并成家族组（名字带 +N），共 {len(families)} 个家族。",
           f"- 体积口径：PNG 按样本实测比例 {PNG_RATIO} 折算成 WebP（只测了 8 张），其余按原样。skel 和 atlas 文件随模型计入。",
           f"- 已放置：原 {mb(tot_b)} MB → 预计 {mb(tot_p)} MB。",
           f"- 未归属（路径没还原，不知道该放哪里）：{groups['unassigned']['files']} 个文件，{mb(groups['unassigned']['bytes'])} MB。",
