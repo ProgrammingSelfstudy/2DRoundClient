@@ -24,9 +24,14 @@ export class GameSocket {
     this.onState("connecting");
     const ws = new WebSocket(url);
     ws.binaryType = "arraybuffer";
-    ws.onopen = () => this.onState("open");
-    ws.onclose = e => this.onState(`closed (${e.code})`);
-    ws.onerror = () => this.onState("error");
+    // a socket that was replaced or closed by us must not touch the state of the current one
+    ws.onopen = () => this.ws === ws && this.onState("open");
+    ws.onclose = e => {
+      if (this.ws !== null && this.ws !== ws) return;
+      // 1000 is a normal close; 1005 is what a browser reports when a close arrives without a status code. Neither is a fault.
+      this.onState(e.code === 1000 || e.code === 1005 ? `closed-ok (${e.code})` : `closed (${e.code})`);
+    };
+    ws.onerror = () => this.ws === ws && this.onState("error");
     ws.onmessage = ev => {
       try {
         for (const f of this.parser.push(new Uint8Array(ev.data as ArrayBuffer))) {
@@ -53,7 +58,7 @@ export class GameSocket {
   }
 
   close() {
-    this.ws?.close();
+    this.ws?.close(1000, "client closed"); // with a status code the server logs a clean close, not "no status received"
     this.ws = null;
   }
 }

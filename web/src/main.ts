@@ -9,7 +9,7 @@ const url = new URLSearchParams(location.search).get("ws") ?? `ws://${location.h
 $("url").textContent = url;
 $("schema").textContent = `${Object.keys(send).length} 个请求，${Object.keys(recv).length} 个响应`;
 sock.onState = s => {
-  $("state").textContent = s;
+  $("state").textContent = s.replace("closed-ok", "已断开");
   $("state").dataset.s = s.split(" ")[0];
   ($("beat") as HTMLButtonElement).disabled = s !== "open";
   // 1006 is what a browser reports for any failed handshake; the gateway answers 403 to a page whose origin is not in gateway.ws_origins
