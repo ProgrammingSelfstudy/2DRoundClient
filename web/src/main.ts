@@ -1,8 +1,11 @@
 import { GameSocket, type Logged } from "./net.ts";
 import { recv, send } from "./proto/schema.ts";
+import { Session } from "./session.ts";
+import { enterGame } from "./login.ts";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const sock = new GameSocket();
+const session = new Session(sock);
 // the gateway's WebSocket is on the same host as this page, so the page works from localhost and from a LAN address alike
 const url = new URLSearchParams(location.search).get("ws") ?? `ws://${location.hostname}:8802/ws`;
 
@@ -26,14 +29,48 @@ sock.onLog = (e: Logged) => {
   (tr.lastElementChild as HTMLElement).textContent = body.length > 300 ? body.slice(0, 300) + "…" : body;
   $("log").prepend(tr);
 };
-$("connect").onclick = () => sock.connect(url);
-$("close").onclick = () => sock.close();
+const logError = (cmd: number, e: unknown) => sock.onLog({ t: Date.now(), dir: "c2s", cmd, size: 0, msg: null, error: (e as Error).message });
+$("connect").onclick = () => session.open(url).catch(e => logError(0, e));
+$("close").onclick = () => {
+  stopHeartbeat();
+  sock.close();
+};
 $("beat").onclick = () => {
   try {
-    sock.send(1169);
+    session.send(1169);
   } catch (e) {
     // an inline message, never alert(): a modal dialog freezes the page and any browser automation attached to it
-    sock.onLog({ t: Date.now(), dir: "c2s", cmd: 1169, size: 0, msg: null, error: (e as Error).message });
+    logError(1169, e);
+  }
+};
+
+// login: the same sequence as the real client; each step shows up in the list as it finishes
+let hb: ReturnType<typeof setInterval> | undefined;
+const stopHeartbeat = () => { clearInterval(hb); hb = undefined; };
+$("login").onclick = async () => {
+  const btn = $("login") as HTMLButtonElement;
+  const account = ($("acct") as HTMLInputElement).value.trim();
+  const password = ($("pass") as HTMLInputElement).value;
+  if (!account || !password) { $("loginSteps").innerHTML = "<li class=fail><span class=dot></span><span>请填写账号和密码</span></li>"; return; }
+  btn.disabled = true;
+  stopHeartbeat();
+  $("role").textContent = "";
+  const rows = new Map<string, HTMLElement>();
+  $("loginSteps").innerHTML = "";
+  try {
+    const entered = await enterGame(session, url, account, password, (name, state, detail) => {
+      let li = rows.get(name);
+      if (!li) { li = document.createElement("li"); rows.set(name, li); $("loginSteps").append(li); }
+      li.className = state === "doing" ? "doing" : state === "done" ? "done" : "fail";
+      li.innerHTML = "<span class=dot></span><span></span>";
+      (li.children[1] as HTMLElement).textContent = detail ? `${name}：${detail}` : name;
+    });
+    $("role").textContent = `已进入游戏：${entered.name}（rid ${entered.rid}，${entered.srv_id}）${entered.created ? "，刚创建的新角色" : ""}`;
+    hb = setInterval(() => { try { session.send(1169); } catch { stopHeartbeat(); } }, 30000);
+  } catch {
+    // the failing step is already shown in red
+  } finally {
+    btn.disabled = false;
   }
 };
 

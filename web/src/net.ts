@@ -17,6 +17,7 @@ export class GameSocket {
   private parser = new FrameParser();
   onLog: (e: Logged) => void = () => {};
   onState: (s: string) => void = () => {};
+  onFrame: (cmd: number, msg: Msg | null) => void = () => {};
 
   connect(url: string) {
     this.close();
@@ -40,6 +41,7 @@ export class GameSocket {
           if (!fields) error = "no schema for this command";
           else try { msg = decode(fields, f.payload); } catch (e) { error = (e as Error).message; }
           this.onLog({ t: Date.now(), dir: "s2c", cmd: f.cmd, size: f.payload.length, msg, error });
+          this.onFrame(f.cmd, msg);
         }
       } catch (e) {
         this.onLog({ t: Date.now(), dir: "s2c", cmd: 0, size: 0, msg: null, error: (e as Error).message });

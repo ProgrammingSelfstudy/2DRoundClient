@@ -9,13 +9,19 @@ h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:20px 0 8px}.sub,small,
 .card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px 14px}
 ol{list-style:none;padding:0;margin:0}li{display:flex;gap:10px;align-items:center;padding:8px 12px;background:var(--card);border:1px solid var(--bd);border-radius:8px;margin-bottom:6px}
 .dot{width:10px;height:10px;border-radius:50%;background:var(--todo);flex:none}.done .dot{background:var(--ok)}.doing .dot{background:var(--doing);animation:p 1s infinite}@keyframes p{50%{opacity:.3}}
-button:disabled{opacity:.45;cursor:not-allowed}button{font:inherit;padding:4px 12px;border:1px solid var(--bd);background:var(--card);color:var(--fg);border-radius:6px;cursor:pointer;margin-right:6px}
+input{font:inherit;padding:4px 8px;border:1px solid var(--bd);background:var(--card);color:var(--fg);border-radius:6px}.fail .dot{background:var(--bad)}button:disabled{opacity:.45;cursor:not-allowed}button{font:inherit;padding:4px 12px;border:1px solid var(--bd);background:var(--card);color:var(--fg);border-radius:6px;cursor:pointer;margin-right:6px}
 #state{font-weight:600}#state[data-s=open]{color:var(--ok)}#state[data-s=error],#state[data-s=closed]{color:var(--bad)}
 table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:4px 8px;border-bottom:1px solid var(--bd);text-align:left;vertical-align:top}th{color:var(--mut);font-weight:500}
 .c2s{color:var(--c2s)}.s2c{color:var(--s2c)}.body{font-family:ui-monospace,monospace;word-break:break-all}
 </style></head><body>
 <h1>客户端开发页</h1><div class="sub">TypeScript 网页，走服务器的 WebSocket。开发进度每 5 秒自动刷新，更新于 <span id="updated">…</span></div>
 <h2>开发进度</h2><ol id="steps"></ol>
+<h2>登录</h2>
+<div class="card">
+  <p style="margin-top:0">账号不存在时服务器会自动注册（开发环境）。</p>
+  <p><input id="acct" placeholder="账号" value="webtest01" autocomplete="username"> <input id="pass" type="password" placeholder="密码" value="secret12" autocomplete="current-password"> <button id="login">登录并进入游戏</button></p>
+  <ol id="loginSteps"></ol><p id="role" style="font-weight:600"></p>
+</div>
 <h2>连接</h2>
 <div class="card">
   <div>地址：<code id="url"></code>　状态：<span id="state">未连接</span></div>
