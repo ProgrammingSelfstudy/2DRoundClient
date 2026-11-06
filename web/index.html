@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>客户端开发页</title>
+<style>
+:root{--bg:#f6f7f9;--fg:#1c2330;--card:#fff;--mut:#6b7280;--bd:#e5e7eb;--ok:#16a34a;--doing:#d97706;--todo:#9ca3af;--bad:#dc2626;--c2s:#2563eb;--s2c:#7c3aed}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1218;--fg:#e6e9ef;--card:#181d27;--mut:#8b94a5;--bd:#2a3140}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 -apple-system,system-ui,sans-serif;padding:16px;max-width:1000px;margin-inline:auto}
+h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:20px 0 8px}.sub,small,em{color:var(--mut)}small{display:block}em{margin-left:auto;font-style:normal}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px 14px}
+ol{list-style:none;padding:0;margin:0}li{display:flex;gap:10px;align-items:center;padding:8px 12px;background:var(--card);border:1px solid var(--bd);border-radius:8px;margin-bottom:6px}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--todo);flex:none}.done .dot{background:var(--ok)}.doing .dot{background:var(--doing);animation:p 1s infinite}@keyframes p{50%{opacity:.3}}
+button{font:inherit;padding:4px 12px;border:1px solid var(--bd);background:var(--card);color:var(--fg);border-radius:6px;cursor:pointer;margin-right:6px}
+#state{font-weight:600}#state[data-s=open]{color:var(--ok)}#state[data-s=error],#state[data-s=closed]{color:var(--bad)}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:4px 8px;border-bottom:1px solid var(--bd);text-align:left;vertical-align:top}th{color:var(--mut);font-weight:500}
+.c2s{color:var(--c2s)}.s2c{color:var(--s2c)}.body{font-family:ui-monospace,monospace;word-break:break-all}
+</style></head><body>
+<h1>客户端开发页</h1><div class="sub">TypeScript 网页，走服务器的 WebSocket。开发进度每 5 秒自动刷新，更新于 <span id="updated">…</span></div>
+<h2>开发进度</h2><ol id="steps"></ol>
+<h2>连接</h2>
+<div class="card">
+  <div>地址：<code id="url"></code>　状态：<span id="state">未连接</span></div>
+  <div>协议表：<span id="schema"></span></div>
+  <p><button id="connect">连接</button><button id="beat">发送心跳 1169</button><button id="close">断开</button></p>
+</div>
+<h2>收发日志</h2>
+<table><thead><tr><th>时间</th><th>方向</th><th>命令</th><th>字节</th><th>内容</th></tr></thead><tbody id="log"></tbody></table>
+<script type="module" src="/src/main.ts"></script>
+</body></html>
