@@ -100,6 +100,15 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
       const bids = [10101, 10201, 10202, 10301, 10302, 10303, 10304, 10305, 10401, 10402, 10403, 10404, 10405, 10501, 10502, 10503, 10504, 10505, 10506, 10507];
       const heroDemo = q.get("herodemo") === "1" ? Array.from({ length: 60 }, (_, i) => ({ partner_id: i + 1, bid: bids[i % bids.length], lev: 1 + i, star: 1 + (i % 5), power: 1000 * i })) : null;
       heroes.setHeroes((heroDemo ?? city.partners) as unknown as Parameters<typeof heroes.setHeroes>[0], Number(city.heroBag?.num ?? 0));
+      // the list read at login goes stale (summons, grants): read it again when the hero page or the formation window opens
+      const refreshHeroes = async () => {
+        if (heroDemo) return;
+        try {
+          const r = await session.request(11025, {}, 11025);
+          city.partners = (r.partners as typeof city.partners | undefined) || [];
+          heroes.setHeroes(city.partners as unknown as Parameters<typeof heroes.setHeroes>[0], Number(r.num ?? 0));
+        } catch (e) { console.warn("hero list:", (e as Error).message); }
+      };
       const detail = await buildHeroDetail(canvas);
       // tapping a hero opens its info window at once with what the list has, then fills the attribute list from 11063
       heroes.onHero(async h => {
@@ -149,7 +158,7 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
       drama.onBoss(async a => {
         if (a === "level") return toast(canvas, "等级不足");
         if (a === "next") return go("next");
-        try { form.open(await session.request(11211, { type: 0 }, 11211), heroList()); } catch (e) { toast(canvas, (e as Error).message); }
+        try { await refreshHeroes(); form.open(await session.request(11211, { type: 0 }, 11211), heroList()); } catch (e) { toast(canvas, (e as Error).message); }
       });
       const main = await buildMainPage(canvas); // built after the pages so the top bar and the tabs stay on top of them
       // the quick battle window sits over everything, the way the original's dialogue does
@@ -176,7 +185,7 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
       // 10923: the server tells one activity icon opening or closing while the player is in the city
       session.on(10923, m => main.icons.setOpen(Number(m.id), Number(m.status) !== 0));
       main.icons.onIcon(name => toast(canvas, `${name}：暂未开放`));
-      main.onTab(t => { detail.close(); form.close(); heroes.show(t === 2); bag.show(t === 3); drama.show(t === 4); });
+      main.onTab(t => { if (t === 2) void refreshHeroes(); detail.close(); form.close(); heroes.show(t === 2); bag.show(t === 3); drama.show(t === 4); });
       // dev convenience: ?battledemo=1 stands the first battle's two models (hero 10401 star 4 = H30009, enemy 101011 = H30012) on the screen
       if (q.get("battledemo") === "1") {
         for (const [model, x] of [["H30009", -170], ["H30012", 170]] as const) {
