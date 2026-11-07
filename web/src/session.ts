@@ -29,7 +29,8 @@ export class Session {
     sock.onFrame = (cmd, msg) => {
       this.lastFrameAt = Date.now();
       if (msg) this.last.set(cmd, msg);
-      if (msg) for (const f of this.listeners.get(cmd) ?? []) f(msg);
+      const fs = this.listeners.get(cmd);
+      if (msg && fs) for (const f of fs) f(msg);
       const w = this.waiters.get(cmd);
       if (w) {
         this.waiters.delete(cmd);

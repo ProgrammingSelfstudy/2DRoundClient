@@ -63,7 +63,8 @@ export function readCity(last: ReadonlyMap<number, Msg>): City {
 function openIcons(last: ReadonlyMap<number, Msg>): number[] {
   const ids = new Set<number>();
   for (const cmd of [10922, 10924]) {
-    for (const a of (last.get(cmd)?.act_list as Msg[] | undefined) ?? []) if (Number(a.status) !== 0) ids.add(Number(a.id));
+    const list = last.get(cmd)?.act_list as Msg[] | undefined;
+    if (list) for (const a of list) if (Number(a.status) !== 0) ids.add(Number(a.id)); // no `?? []` in a for-of: Creator's compiler fails on it
   }
   return Array.from(ids);
 }
