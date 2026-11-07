@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The client's item table for the release: {id: [name, icon, type, quality]} from the restored item_data*.lua files.
+"""The client's item table for the release: {id: [name, icon, type, quality, sub_type]} from the restored item_data*.lua files.
 Same row format as the server's tools/extract_items.py (id, name, icon, type, sub_type, quality, ...); only what the UI shows is kept.
 
   python3 pipeline/items_table.py <lua dir ePoCrKQk.../> <out.json>
@@ -17,7 +17,7 @@ def table(lua_dir):
     for path in sorted(glob.glob(f"{lua_dir}/item_data*.lua")):
         for key, id_, name, icon, typ, sub, quality in ROW.findall(open(path, encoding="utf-8").read()):
             assert key == id_ and id_ not in items, (path, id_)
-            items[id_] = [name.replace('\\"', '"'), int(icon), int(typ), int(quality)]
+            items[id_] = [name.replace('\\"', '"'), int(icon), int(typ), int(quality), int(sub)]
     return items
 
 

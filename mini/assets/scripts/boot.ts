@@ -88,7 +88,7 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
       const bag = await buildBackpackPage(canvas);
       // dev convenience: ?bagdemo=1 fills the backpack with made-up stacks, to look at icons and paging without an account that owns items
       const demo = q.get("bagdemo") === "1" ? [1, 3, 10001, 99955, 10002, 10003, 20001, 30001, 40001, 50001, 60001, 70001, 80001, 90001, 11001, 12001, 13001, 14001, 15001, 16001, 17001, 18001, 19001].map((base_id, i) => ({ base_id, quantity: 1 + i * 7 })) : null;
-      bag.setItems(demo ?? (city.items as unknown as { base_id: number; quantity: number }[]));
+      bag.setItems(demo ?? (city.items as unknown as { base_id: number; quantity: number }[]), city.equips as unknown as { base_id: number; quantity: number }[]);
       const heroes = await buildHeroPage(canvas);
       // dev convenience: ?herodemo=1 shows 60 made-up heroes, to look at the grid and scrolling
       const bids = [10101, 10201, 10202, 10301, 10302, 10303, 10304, 10305, 10401, 10402, 10403, 10404, 10405, 10501, 10502, 10503, 10504, 10505, 10506, 10507];

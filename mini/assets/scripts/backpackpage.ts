@@ -7,11 +7,14 @@ import { spineNode } from "./spine";
 import { W, H } from "./loginpage";
 
 interface Slot { base_id: number; quantity: number }
-type ItemTable = { [id: string]: [string, number, number, number] };
+type ItemTable = { [id: string]: [string, number, number, number, number] }; // name, icon, type, quality, sub type
 
 const COLS = 5, ROWS = 4, CELL = 119, GAP = 8;
 
-export interface BackpackPage { root: Node; setItems(items: Slot[]): void; show(on: boolean): void }
+export interface BackpackPage { root: Node; setItems(items: Slot[], equips?: Slot[]): void; show(on: boolean): void }
+
+// BackPackConst.item_tab_type of the five tabs (装备 道具 碎片 特殊 幽灵): equipment lives in its own bag, the rest are the item bag split by sub type
+const TAB_SUB = [1, 2, 3, 4, 6];
 
 export async function buildBackpackPage(canvas: Node): Promise<BackpackPage> {
   const [win, cell, items] = await Promise.all([
@@ -51,8 +54,10 @@ export async function buildBackpackPage(canvas: Node): Promise<BackpackPage> {
 
   // the category tabs (装备 道具 碎片 特殊 幽灵), 128 x 64 from x = 40; the second, 道具, is the one the window opens on
   const tabBox = built.byName.get("tab_container")!;
+  const tabViews: { sprite: Sprite; label: Label }[] = [];
+  let tab = 1;
   ["装备", "道具", "碎片", "特殊", "幽灵"].forEach((title, i) => {
-    const on = i === 1;
+    const on = i === tab;
     const n = new Node(`tab_${i}`);
     n.layer = tabBox.layer;
     n.addComponent(UITransform).setContentSize(128, 64);
@@ -75,6 +80,8 @@ export async function buildBackpackPage(canvas: Node): Promise<BackpackPage> {
     l.outlineWidth = 2;
     n.addChild(t);
     tabBox.addChild(n);
+    tabViews.push({ sprite: sp, label: l });
+    n.on(Node.EventType.TOUCH_END, () => selectTab(i));
   });
 
   // the cells sit in the framed area (Image_1, 662x682, centred in `container`); its top-left is where the grid starts
@@ -98,8 +105,23 @@ export async function buildBackpackPage(canvas: Node): Promise<BackpackPage> {
     cells.push({ node: c.root, icon, num });
   }
 
+  let bag: Slot[] = [], equips: Slot[] = [];
   let all: Slot[] = [];
   let page = 0;
+  // what the current tab shows: the equipment bag, or the item bag's stacks of that sub type
+  const refill = () => {
+    all = tab === 0 ? equips : bag.filter(s => (items[String(s.base_id)]?.[4] ?? 2) === TAB_SUB[tab]);
+    page = 0;
+  };
+  const selectTab = (i: number) => {
+    tab = i;
+    tabViews.forEach((v, j) => {
+      atlasFrame("ui/backpack/backpack.json", j === i ? "backpack_3.png" : "backpack_2.png").then(sf => { v.sprite.spriteFrame = sf; }, () => {});
+      v.label.color = j === i ? new Color(255, 255, 255, 255) : new Color(248, 194, 60, 255);
+    });
+    refill();
+    void render();
+  };
   const pages = () => Math.max(1, Math.ceil(all.length / cells.length));
   const render = async () => {
     for (let i = 0; i < cells.length; i++) {
@@ -130,7 +152,7 @@ export async function buildBackpackPage(canvas: Node): Promise<BackpackPage> {
 
   return {
     root,
-    setItems(list) { all = list; page = 0; void render(); },
+    setItems(list, equipment = []) { bag = list; equips = equipment; refill(); void render(); },
     show(on) { root.active = on; },
   };
 }
