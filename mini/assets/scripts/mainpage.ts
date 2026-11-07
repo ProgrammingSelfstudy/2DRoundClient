@@ -28,7 +28,7 @@ export async function buildMainPage(canvas: Node): Promise<MainPage> {
   const icons = await buildIconBar(built.root);
   let handler = (_t: number) => {};
   // the centre button's picture is a Spine effect (E51130) the original puts into its empty `icon` node: action1 idle, action2 selected
-  let tabNow = 4;
+  let tabNow = 1;
   let centre: Awaited<ReturnType<typeof spineNode>> | null = null;
   spineNode("spine/fx/E51130/action", "action1", by.get("mainui_tab_4")!.getChildByName("icon")!).then(s => {
     centre = s;
@@ -39,7 +39,7 @@ export async function buildMainPage(canvas: Node): Promise<MainPage> {
   const select = (t: number) => {
     tabNow = t;
     centre?.setAnimation(0, t === 4 ? "action2" : "action1", true);
-    icons.show(t === 4); // the function icons belong to the main city; the pages cover it
+    icons.show(t === 1); // the function icons belong to the main city (tab 1); the pages cover it
     tabs.forEach((n, i) => {
       const sel = n.getChildByName("selected");
       if (sel) sel.active = i + 1 === t;
@@ -48,7 +48,7 @@ export async function buildMainPage(canvas: Node): Promise<MainPage> {
   tabs.forEach((n, i) => {
     n.on(Node.EventType.TOUCH_END, () => { select(i + 1); handler(i + 1); });
   });
-  select(4); // the centre tab is the main city
+  select(1); // the first tab is the main city; the centre one is the stage page
 
   // the head: the original's circular PlayerHead, a headicon picture cut to a circle inside head_container (80x80)
   const holder = by.get("head_container")!;

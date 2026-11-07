@@ -6,6 +6,7 @@ import { buildLoginPage } from "./loginpage";
 import { buildMainPage } from "./mainpage";
 import { buildBackpackPage } from "./backpackpage";
 import { buildHeroPage } from "./heropage";
+import { buildDramaPage } from "./dramapage";
 import { buildCityScene } from "./citybg";
 import { toast } from "./toast";
 import { GameSocket } from "./shared/net";
@@ -90,13 +91,15 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
       const bids = [10101, 10201, 10202, 10301, 10302, 10303, 10304, 10305, 10401, 10402, 10403, 10404, 10405, 10501, 10502, 10503, 10504, 10505, 10506, 10507];
       const heroDemo = q.get("herodemo") === "1" ? Array.from({ length: 60 }, (_, i) => ({ partner_id: i + 1, bid: bids[i % bids.length], lev: 1 + i, star: 1 + (i % 5), power: 1000 * i })) : null;
       heroes.setHeroes((heroDemo ?? city.partners) as unknown as Parameters<typeof heroes.setHeroes>[0], Number(city.heroBag?.num ?? 0));
+      const drama = await buildDramaPage(canvas);
+      drama.setDrama(city.drama, Number((city.role as Record<string, unknown>).lev ?? 0));
       const main = await buildMainPage(canvas); // built after the pages so the top bar and the tabs stay on top of them
       main.setCity(city);
-      // tab 2 is the heroes, 3 the backpack, 4 the main city; the other tabs have no page yet
+      // tab 1 is the main city, 2 the heroes, 3 the backpack, 4 the stages; the other tabs have no page yet
       // 10923: the server tells one activity icon opening or closing while the player is in the city
       session.on(10923, m => main.icons.setOpen(Number(m.id), Number(m.status) !== 0));
       main.icons.onIcon(name => toast(canvas, `${name}：暂未开放`));
-      main.onTab(t => { heroes.show(t === 2); bag.show(t === 3); });
+      main.onTab(t => { heroes.show(t === 2); bag.show(t === 3); drama.show(t === 4); });
       page.hide(); // the login page gives way to the main city
     } catch {
       // the failing step is already on the page; a saved login the server refused is not tried again

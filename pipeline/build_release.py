@@ -30,7 +30,7 @@ from skel_to_json import convert  # noqa: E402
 
 LAYOUTS = {"boot": ["login/user_panel.csb"], "mainui": ["mainui/mainui_view.csb"],
            "backpack": ["backpack/backpack_window.csb", "backpack/goods_item.csb"],
-           "hero": ["hero/hero_bag_window.csb"]}  # group -> csb paths (under the recovered csb directory) shipped as layouts
+           "hero": ["hero/hero_bag_window.csb"], "battledrama": ["battle/battle_button_list.csb"]}  # group -> csb paths (under the recovered csb directory) shipped as layouts
 
 
 def group_of(path):
@@ -54,6 +54,10 @@ def group_of(path):
         return "icons-item"
     if path.startswith("resource/functionicon/"):
         return "icons-function"
+    if path.startswith("resource/battledrama/"):
+        return "battledrama"
+    if path.startswith("resource/battle/"):
+        return "battle"
     m = SPINE_DIR.match(path)  # a Spine model: one group per model, named fx-E51130 / hero-H30036 as bundles.py does
     if m:
         return ("fx-" if m.group(1) == "E" else "hero-") + m.group(1) + m.group(2)
@@ -84,6 +88,10 @@ def logical_image(path, group):
         return "ui/herobag/" + name
     if group == "hero":
         return "ui/hero/" + name
+    if group == "battledrama":
+        return "ui/battledrama/" + name
+    if group == "battle":
+        return "ui/battle/" + name
     if group == "icons-head":
         return "icons/head/" + name
     if group == "icons-item":
@@ -210,6 +218,11 @@ def main(assets, version, groups):
         from functions_table import table as functions
         lua = f"{assets}/source/restored-source/outputs/readable-source/lua/ePoCrKQkWA3vpiOwu2oNfOh02MOeNheW"
         put("tables/functions.json", json.dumps(functions(lua), ensure_ascii=False, separators=(",", ":")).encode(), "json", "icons-function", "function_data.lua")
+
+    if "battledrama" in groups:  # the main-line stage table: id -> name, unit, shown rewards, per-minute rewards, level limit, next stage
+        from dungeons_table import table as dungeons
+        lua = f"{assets}/source/restored-source/outputs/readable-source/lua/ePoCrKQkWA3vpiOwu2oNfOh02MOeNheW"
+        put("tables/dungeons.json", json.dumps(dungeons(lua), ensure_ascii=False, separators=(",", ":")).encode(), "json", "battledrama", "dungeon_data.lua")
 
     manifest = {"version": version, "platform": "web", "files": files}
     json.dump(manifest, open(f"{out}/manifest.web.json", "w"), ensure_ascii=False, indent=1)
