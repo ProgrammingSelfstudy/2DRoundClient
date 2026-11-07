@@ -54,6 +54,8 @@ def group_of(path):
         return "icons-item"
     if path.startswith("resource/functionicon/"):
         return "icons-function"
+    if path.startswith("resource/bigbg/hero/"):  # the hero bag's window pictures, set by hero_bag_window.lua over the layout's placeholders
+        return "bigbg-hero"
     if path.startswith("resource/battledrama/"):
         return "battledrama"
     if path.startswith("resource/battle/"):
@@ -92,6 +94,8 @@ def logical_image(path, group):
         return "ui/herobag/" + name
     if group == "hero":
         return "ui/hero/" + name
+    if group == "bigbg-hero":
+        return "bg/hero/" + name
     if group == "battledrama":
         return "ui/battledrama/" + name
     if group == "battle":

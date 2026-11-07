@@ -19,21 +19,46 @@ export interface HeroPage { root: Node; setHeroes(list: Hero[], capacity?: numbe
 export async function buildHeroPage(canvas: Node): Promise<HeroPage> {
   const [win, table] = await Promise.all([loadJson<LNode>("layouts/hero/hero_bag_window.json"), loadJson<PartnerTable>("tables/partners.json")]);
   const built = await buildLayout(win, canvas, {
-    // the tabs, the camp filter, the empty-state notice and the formation button are not wired up yet
-    hide: ["tab_container", "camp_node", "no_vedio_label", "no_vedio_image", "embattle_btn", "library_btn", "img_line", "con_panel", "box_1"],
+    // the empty-state notice, the library button (the original hides it too), the divider and the overlay panel stay hidden
+    hide: ["no_vedio_label", "no_vedio_image", "library_btn", "img_line", "con_panel"],
   });
   const root = built.root;
   root.setPosition(-W / 2, -H / 2, 0);
   opaqueBase(root, W, H);
   root.active = false;
 
-  const bg = built.byName.get("background")!;
-  if (!bg.getComponent(Sprite)) {
-    const s = bg.addComponent(Sprite);
+  // the layout's background and box_1 are placeholders; hero_bag_window.lua loads the window's own pictures into them
+  const picture = async (name: string, logical: string, w: number, h: number) => {
+    const n = built.byName.get(name)!;
+    const s = n.getComponent(Sprite) ?? n.addComponent(Sprite);
     s.sizeMode = Sprite.SizeMode.CUSTOM;
-    try { s.spriteFrame = await spriteFrame("ui/common/common_fill_bg.webp"); } catch (e) { console.warn("hero background:", e); }
-    bg.getComponent(UITransform)!.setContentSize(W, H);
-  }
+    try { s.spriteFrame = await spriteFrame(logical); } catch (e) { console.warn(`hero ${name}:`, e); }
+    n.getComponent(UITransform)!.setContentSize(w, h);
+  };
+  await Promise.all([picture("background", "bg/hero/hero_bag_bg.webp", W, H), picture("box_1", "bg/hero/hero_bag_bg_1.webp", 720, 990)]);
+
+  // the camp filter on the hero tab: seven round buttons 58 wide and 20 apart centred on the node (HeroBagWindow.setCampBtnPos), the ring on "all"
+  const camp = built.byName.get("camp_node")!;
+  const xs = [0, 1, 2, 3, 4, 5, 7].map((_, i) => -(58 * 7 + 20 * 6) / 2 + 29 + i * 78);
+  [0, 1, 2, 3, 4, 5, 7].forEach((c, i) => { const b = camp.getChildByName(`camp_btn${c}`)!; b.setPosition(xs[i], b.position.y, 0); });
+  const ring = camp.getChildByName("img_select")!;
+  ring.setPosition(xs[0] - 0.5, camp.getChildByName("camp_btn0")!.position.y + 1, 0);
+
+  // the four tabs (英雄 图鉴 幽灵 信念): the first is shown; the others have no page yet
+  const tabs = ["英雄", "图鉴", "幽灵", "信念"];
+  tabs.forEach((title, i) => {
+    const btn = built.byName.get("tab_container")!.getChildByName(`tab_btn_${i + 1}`)!;
+    const label = btn.getChildByName("label")!.getComponent(Label)!;
+    label.string = title;
+    label.fontSize = 24;
+    label.lineHeight = 28;
+    label.overflow = Label.Overflow.NONE;
+    const on = i === 0;
+    label.color = on ? new Color(255, 255, 255, 255) : new Color(248, 194, 60, 255);
+    btn.getChildByName("select_img")!.active = on;
+    btn.getChildByName("normal_img")!.active = !on;
+    btn.getChildByName("red_point")!.active = false;
+  });
 
   // the scroll area: a clipped viewport and a content node dragged inside it
   const view = built.byName.get("lay_scrollview")!;
