@@ -36,7 +36,8 @@ export interface BattleScene {
 // hit-point bar and the floating numbers, which must not be flipped with the body.
 interface Fighter {
   group: number; model: string; root: Node; body: Node; bar: Graphics;
-  hp: number; hpMax: number; dead: boolean; ph: boolean; // ph: stands as a placeholder (no model, or none the release carries)
+  hp: number; hpMax: number; dead: boolean; buffs: Map<number, number>; status: Label; // buffs: buff id -> bid of the statuses on it, status: their names over the bar
+  ph: boolean; // ph: stands as a placeholder (no model, or none the release carries)
   files: Map<string, Promise<sp.Skeleton | null>>;
 }
 
@@ -47,7 +48,11 @@ function cell(group: number, pos: number): number[] {
 }
 
 export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
-  const [models, skillActions] = await Promise.all([loadJson<Models>("tables/battle_models.json"), loadJson<{ [group: string]: string }>("tables/skill_actions.json")]);
+  const [models, skillActions, buffTable] = await Promise.all([
+    loadJson<Models>("tables/battle_models.json"),
+    loadJson<{ [group: string]: string }>("tables/skill_actions.json"),
+    loadJson<{ [bid: string]: [string, number] }>("tables/buffs.json"), // buff bid -> name, 1 benefit / 2 harm
+  ]);
   const actionOf = (skillBid: number) => skillActions[String(Math.floor(skillBid / 10))] ?? guessAction(skillBid);
   const root = new Node("battle_scene");
   root.layer = canvas.layer;
@@ -97,6 +102,25 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
     n.setPosition(x, y, 0);
     parent.addChild(n);
     return n;
+  };
+
+  // the line of status names over a fighter's hit-point bar; the position node is not flipped, so the text reads the right way
+  const statusLabel = (parent: Node) => {
+    const n = new Node("status");
+    n.layer = root.layer;
+    n.addComponent(UITransform).setContentSize(220, 22);
+    n.setPosition(0, 152, 0);
+    const l = n.addComponent(Label);
+    l.string = ""; // a Label starts as "label"
+    l.fontSize = 18;
+    l.lineHeight = 22;
+    l.overflow = Label.Overflow.NONE;
+    l.color = new Color(255, 235, 150, 255);
+    l.enableOutline = true;
+    l.outlineColor = new Color(0, 0, 0, 255);
+    l.outlineWidth = 2;
+    parent.addChild(n);
+    return l;
   };
 
   const drawBar = (f: Fighter) => {
@@ -191,7 +215,25 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
     tween(n).to(0.7, { position: n.position.clone().add3f(0, 70, 0) }).call(() => n.destroy()).start();
   };
 
+  // buff_list of an effect: action 1 adds a status (its name floats up, green for a benefit, red for a harm), 2 takes it off, 3 only refreshes its rounds
+  const applyBuffs = (e: Msg) => {
+    const list = e.buff_list as Msg[] | undefined;
+    if (!list) return;
+    for (const b of list) {
+      const f = fighters.get(Number(b.target));
+      if (!f) continue;
+      const info = buffTable[String(b.buff_bid)], action = Number(b.action_type);
+      if (action === 2) f.buffs.delete(Number(b.id));
+      else {
+        if (action === 1 && info && !f.buffs.has(Number(b.id))) float(f, info[0], info[1] === 2 ? new Color(255, 110, 100, 255) : new Color(120, 255, 140, 255), false);
+        f.buffs.set(Number(b.id), Number(b.buff_bid));
+      }
+      f.status.string = Array.from(new Set(Array.from(f.buffs.values()).map(bid => buffTable[String(bid)]?.[0]).filter(Boolean))).join(" ");
+    }
+  };
+
   const hit = async (e: Msg) => {
+    applyBuffs(e);
     const f = fighters.get(Number(e.target));
     if (!f) return;
     const change = Number(e.hp_changed);
@@ -246,7 +288,7 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
         barNode.addComponent(UITransform);
         barNode.setPosition(0, 130, 0);
         fr.addChild(barNode);
-        const f: Fighter = { group, model: model ?? "", ph: false, root: fr, body, bar: barNode.addComponent(Graphics), hp: Number(o.hp), hpMax: Math.max(1, Number(o.hp_max)), dead: false, files: new Map() };
+        const f: Fighter = { group, model: model ?? "", ph: false, buffs: new Map(), status: statusLabel(fr), root: fr, body, bar: barNode.addComponent(Graphics), hp: Number(o.hp), hpMax: Math.max(1, Number(o.hp_max)), dead: false, files: new Map() };
         drawBar(f);
         fighters.set(Number(o.pos), f);
         if (mine !== token) return;
