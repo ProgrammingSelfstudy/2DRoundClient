@@ -1,7 +1,7 @@
 // The main city page: the original `mainui/mainui_view` (top bar with head, level, power and currencies; bottom tab bar) built from its
 // layout in the release, filled from the main-city data the server sent. The city scene behind it and the tabs' pages come later.
-import { Label, Node, Sprite } from "cc";
-import { loadJson } from "./cdn";
+import { Label, Mask, Node, Sprite, UITransform } from "cc";
+import { loadJson, spriteFrame } from "./cdn";
 import { LNode, buildLayout } from "./ui";
 import { W, H } from "./loginpage";
 import type { City } from "./shared/city";
@@ -34,6 +34,31 @@ export async function buildMainPage(canvas: Node): Promise<MainPage> {
     n.on(Node.EventType.TOUCH_END, () => { select(i + 1); handler(i + 1); });
   });
   select(4); // the centre tab is the main city
+
+  // the head: the original's circular PlayerHead, a headicon picture cut to a circle inside head_container (80x80)
+  const holder = by.get("head_container")!;
+  const circle = new Node("head_circle");
+  circle.layer = holder.layer;
+  circle.addComponent(UITransform).setContentSize(76, 76);
+  circle.setPosition(0, 0, 0);
+  circle.addComponent(Mask).type = Mask.Type.GRAPHICS_ELLIPSE;
+  const pic = new Node("pic");
+  pic.layer = holder.layer;
+  pic.addComponent(UITransform).setContentSize(76, 76);
+  const headSprite = pic.addComponent(Sprite);
+  headSprite.sizeMode = Sprite.SizeMode.CUSTOM;
+  circle.addChild(pic);
+  holder.addChild(circle);
+  const vip = new Node("vip_lev");
+  vip.layer = holder.layer;
+  vip.addComponent(UITransform).setContentSize(60, 24);
+  vip.setPosition(-4, 18, 0);
+  const vipLabel = vip.addComponent(Label);
+  vipLabel.fontSize = 18;
+  vipLabel.lineHeight = 22;
+  vipLabel.enableOutline = true;
+  vipLabel.outlineWidth = 2;
+  holder.addChild(vip);
   return {
     root: built.root,
     select,
@@ -48,6 +73,8 @@ export async function buildMainPage(canvas: Node): Promise<MainPage> {
       label("wealth_label_1")!.string = num(a.coin);
       label("wealth_label_2")!.string = num(a.gold);
       label("wealth_label_3")!.string = num(a.hero_exp);
+      vipLabel.string = Number(r.vip_lev ?? 0) > 0 ? String(r.vip_lev) : "";
+      spriteFrame(`icons/head/${r.face_id}.webp`).then(sf => { headSprite.spriteFrame = sf; }, () => {}); // a face_id with no picture keeps the empty circle
       const max = Number(r.exp_max ?? 0), cur = Number(r.exp ?? 0);
       const bar = by.get("exp_bar")?.getComponent(Sprite);
       if (bar && max > 0) bar.fillRange = Math.min(1, cur / max);
