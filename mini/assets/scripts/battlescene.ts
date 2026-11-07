@@ -1,7 +1,7 @@
 // The battle scene, from the server's 20027 (who stands where) and 20004 (the attacks of a round): the stage's two background layers and
 // every fighter's Spine animations at its grid cell. The grid is the original's (SkillAct.Pos2GridLeft / NormalPosGridRight; a cell is 1/80
 // of the design width and height, the role layer sits 300 above the bottom). Skill effects, buffs and the elf come later.
-import { Color, Graphics, HorizontalTextAlignment, Label, Node, Sprite, UITransform, VerticalTextAlignment, sp, tween } from "cc";
+import { Color, Graphics, HorizontalTextAlignment, Label, Node, Sprite, UITransform, Vec3, VerticalTextAlignment, sp, tween } from "cc";
 import { loadJson, spriteFrame } from "./cdn";
 import { spineData } from "./spine";
 import { W, H } from "./loginpage";
@@ -15,9 +15,10 @@ const RIGHT_NORMAL: number[][] = [[42, 15], [42, 21], [42, 27], [42, 15], [42, 2
 const ROLE_LAYER_Y = 300, FAR_Y = 736, GROUND_Y = 40;
 const OBJECT_PARTNER = 2, OBJECT_UNIT = 3; // BattleObjectType; the elf (5) and the hallows come later
 
-// the animation of a skill by its number: the normal attack (...001) is action1, a hero's skills 1..3 (...101, ...201, ...301) action2, action3, action5
+// the animation of a skill: the original's anime_user_atk of the skill's effect group (skill number // 10), table tables/skill_actions.json. A skill with
+// no effect group (about one in seven of the server's skills) falls back to a guess by its number: ...001 action1, ...101 action2, ...201 action3, ...301 action5
 const ACTIONS = ["action1", "action2", "action3", "action5"];
-const actionOf = (skillBid: number) => ACTIONS[Math.min(ACTIONS.length - 1, Math.floor((skillBid % 1000) / 100))];
+const guessAction = (skillBid: number) => ACTIONS[Math.min(ACTIONS.length - 1, Math.floor((skillBid % 1000) / 100))];
 const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 const BAR_W = 80, BAR_H = 8;
 
@@ -25,6 +26,7 @@ export interface BattleScene {
   root: Node;
   start(opening: Msg, mapId: number): Promise<void>;
   play(skillPlays: Msg[]): Promise<void>; // one round's attacks (20004)
+  round(n: number, max: number): void; // "第 n/max 回合" at the top, from the action count of 20002
   banner(text: string, win: boolean): void; // the result, over the field
   show(on: boolean): void;
   onTap(f: () => void): void;
@@ -34,7 +36,7 @@ export interface BattleScene {
 // hit-point bar and the floating numbers, which must not be flipped with the body.
 interface Fighter {
   group: number; model: string; root: Node; body: Node; bar: Graphics;
-  hp: number; hpMax: number; dead: boolean;
+  hp: number; hpMax: number; dead: boolean; ph: boolean; // ph: stands as a placeholder (no model, or none the release carries)
   files: Map<string, Promise<sp.Skeleton | null>>;
 }
 
@@ -45,7 +47,8 @@ function cell(group: number, pos: number): number[] {
 }
 
 export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
-  const models = await loadJson<Models>("tables/battle_models.json");
+  const [models, skillActions] = await Promise.all([loadJson<Models>("tables/battle_models.json"), loadJson<{ [group: string]: string }>("tables/skill_actions.json")]);
+  const actionOf = (skillBid: number) => skillActions[String(Math.floor(skillBid / 10))] ?? guessAction(skillBid);
   const root = new Node("battle_scene");
   root.layer = canvas.layer;
   const rt = root.addComponent(UITransform);
@@ -64,13 +67,15 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
   };
   const far = layer("far", 0, FAR_Y), ground = layer("ground", 0, GROUND_Y), roles = layer("roles", 0, ROLE_LAYER_Y);
   const top = layer("top", 0, 0); // the result banner, above the fighters
+  const roundNode = layer("round", 0, 0); // the round counter, kept apart from the banner so a new fight can clear one without the other
   let tapped = () => {};
   root.on(Node.EventType.TOUCH_END, () => tapped());
   let token = 0;
   const fighters = new Map<number, Fighter>();
 
   const picture = async (parent: Node, logical: string) => {
-    const s = parent.addComponent(Sprite);
+    const s = parent.getComponent(Sprite) ?? parent.addComponent(Sprite); // a leftover Sprite of the last fight is reused: removeComponent only takes effect later
+    s.spriteFrame = null;
     s.sizeMode = Sprite.SizeMode.RAW;
     try { s.spriteFrame = await spriteFrame(logical); } catch (e) { console.warn(`battle scene: ${(e as Error).message}`); }
   };
@@ -108,6 +113,7 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
   // the Spine of one action file of a fighter, loaded the first time it is needed; null when the model has no usable file for it (the
   // original ships no picture for some, whose animation then lives in another file: H30012's action2 is inside its action1)
   const file = (f: Fighter, name: string): Promise<sp.Skeleton | null> => {
+    if (f.ph) return Promise.resolve(null); // a placeholder has no Spine
     let p = f.files.get(name);
     if (!p) {
       p = (async () => {
@@ -146,6 +152,11 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
   // looping (standing) or once; a once-animation resolves when it ends and the fighter goes back to standing
   const perform = async (f: Fighter, name: string, loop: boolean): Promise<void> => {
     const found = await skeletonFor(f, name);
+    if (!found && f.ph && !loop && !f.dead) { // a placeholder lunges at the other side instead of an action
+      const x = f.body.position.x, d = f.group === 1 ? 40 : -40;
+      await new Promise<void>(r => tween(f.body).to(0.15, { position: new Vec3(x + d, 0, 0) }).to(0.15, { position: new Vec3(x, 0, 0) }).call(() => r()).start());
+      return;
+    }
     if (!found || f.dead) return;
     await showOnly(f, found.s);
     if (loop) { found.s.setAnimation(0, found.anim, true); return; }
@@ -155,6 +166,24 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
       found.s.setAnimation(0, found.anim, false);
     });
     if (!f.dead) await perform(f, "stand2", true);
+  };
+
+  // a fighter whose model the release does not carry stands as a disc with its name, so the fight can still be followed
+  const placeholder = (f: Fighter, name: string) => {
+    const g = new Node("placeholder");
+    g.layer = root.layer;
+    g.addComponent(UITransform);
+    const gr = g.addComponent(Graphics);
+    gr.fillColor = f.group === 1 ? new Color(70, 140, 220, 255) : new Color(200, 70, 60, 255);
+    gr.circle(0, 60, 55);
+    gr.fill();
+    gr.strokeColor = new Color(255, 255, 255, 255);
+    gr.lineWidth = 3;
+    gr.circle(0, 60, 55);
+    gr.stroke();
+    f.body.addChild(g);
+    f.ph = true;
+    text(f.root, name, 24, new Color(255, 255, 255, 255), 0, 60); // on the position node, which is not flipped
   };
 
   const float = (f: Fighter, str: string, color: Color, big: boolean) => {
@@ -182,6 +211,10 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
     root,
     show(on) { root.active = on; },
     onTap(f) { tapped = f; },
+    round(n, max) {
+      roundNode.removeAllChildren();
+      if (n > 0) text(roundNode, `第${n}/${max}回合`, 30, new Color(255, 240, 200, 255), W / 2, H - 150);
+    },
     banner(str, win) {
       top.removeAllChildren();
       text(top, str, 64, win ? new Color(255, 220, 90, 255) : new Color(200, 200, 220, 255), W / 2, H / 2 + 100);
@@ -191,14 +224,12 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
       const mine = ++token;
       roles.removeAllChildren();
       top.removeAllChildren();
+      roundNode.removeAllChildren();
       fighters.clear();
-      far.removeComponent(Sprite);
-      ground.removeComponent(Sprite);
       await Promise.all([picture(far, `bg/battle/${mapId}/m_bg.webp`), picture(ground, `bg/battle/${mapId}/map_bg.webp`)]);
       for (const o of opening.objects as Msg[]) {
         const type = Number(o.object_type), group = Number(o.group), bid = Number(o.object_bid);
         const model = type === OBJECT_PARTNER ? models.p[`${bid}_${o.star}`] : type === OBJECT_UNIT ? models.u[String(bid)]?.[0] : undefined;
-        if (!model) continue;
         const [gx, gy] = cell(group, Number(o.pos));
         const size = type === OBJECT_UNIT ? (models.u[String(bid)]?.[1] ?? 1000) / 1000 : 1;
         const fr = new Node(`fighter_${o.pos}`);
@@ -215,12 +246,17 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
         barNode.addComponent(UITransform);
         barNode.setPosition(0, 130, 0);
         fr.addChild(barNode);
-        const f: Fighter = { group, model, root: fr, body, bar: barNode.addComponent(Graphics), hp: Number(o.hp), hpMax: Math.max(1, Number(o.hp_max)), dead: false, files: new Map() };
+        const f: Fighter = { group, model: model ?? "", ph: false, root: fr, body, bar: barNode.addComponent(Graphics), hp: Number(o.hp), hpMax: Math.max(1, Number(o.hp_max)), dead: false, files: new Map() };
         drawBar(f);
         fighters.set(Number(o.pos), f);
         if (mine !== token) return;
         roles.addChild(fr);
-        void perform(f, "stand2", true);
+        if (!model) placeholder(f, String(o.object_name || bid));
+        else {
+          // a model the release does not carry (its stand file will not load) is replaced by the placeholder
+          void skeletonFor(f, "stand2").then(found => { if (!found && mine === token && !f.dead) placeholder(f, String(o.object_name || bid)); });
+          void perform(f, "stand2", true);
+        }
       }
     },
     // the attacks of a round in their order: the attacker plays its action, the hits land partway through it

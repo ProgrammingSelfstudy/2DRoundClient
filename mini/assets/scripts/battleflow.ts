@@ -37,6 +37,8 @@ export class Feed {
   }
 }
 
+const MAX_ROUNDS = 15; // the round limit of a campaign fight (maxFightRounds of the server)
+
 // `opening` is the 20027 of the fight; resolves with the result (13016) when the last round has been played
 export async function runFight(session: Session, feed: Feed, scene: BattleScene, opening: Msg, mapId: number): Promise<Msg> {
   feed.clear();
@@ -45,6 +47,7 @@ export async function runFight(session: Session, feed: Feed, scene: BattleScene,
   session.send(20001, {});
   let next = await feed.take([20002]);
   for (let round = 0; round < 60; round++) { // the server's script never runs this long
+    scene.round(Number(next.msg.action_count) || round + 1, MAX_ROUNDS);
     session.send(20019, {});
     const plays = await feed.take([20004]);
     await scene.play((plays.msg.skill_plays as Msg[] | undefined) ?? []);

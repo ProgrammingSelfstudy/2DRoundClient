@@ -268,6 +268,8 @@ def main(assets, version, groups):
         from battle_models_table import table as battle_models
         lua = f"{assets}/source/restored-source/outputs/readable-source/lua/ePoCrKQkWA3vpiOwu2oNfOh02MOeNheW"
         put("tables/battle_models.json", json.dumps(battle_models(lua), ensure_ascii=False, separators=(",", ":")).encode(), "json", "battle", "partner_data.lua, unit_data*.lua")
+        from skill_actions_table import table as skill_actions  # the attack animation of each skill (anime_user_atk of its effect group)
+        put("tables/skill_actions.json", json.dumps(skill_actions(lua), separators=(",", ":")).encode(), "json", "battle", "skill_data*.lua")
 
     manifest = {"version": version, "platform": "web", "files": files}
     json.dump(manifest, open(f"{out}/manifest.web.json", "w"), ensure_ascii=False, indent=1)
