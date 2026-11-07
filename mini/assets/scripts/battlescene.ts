@@ -121,7 +121,7 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
           n.active = false;
           f.body.addChild(n);
           return s;
-        } catch { return null; }
+        } catch (e) { console.warn(`battle scene: ${f.model}/${name}: ${(e as Error).message}`); return null; }
       })();
       f.files.set(name, p);
     }

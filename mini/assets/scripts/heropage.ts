@@ -14,10 +14,11 @@ const COMMON = "ui/common/common.json";
 // HeroConst.CampType -> the badge frame (PathTool.getHeroCampTypeIcon)
 const CAMP: { [camp: number]: string } = { 1: "common_90067", 2: "common_90068", 3: "common_90069", 4: "common_90070", 5: "common_90079", 7: "common_900072" };
 
-export interface HeroPage { root: Node; setHeroes(list: Hero[], capacity?: number): void; show(on: boolean): void }
+export interface HeroPage { root: Node; setHeroes(list: Hero[], capacity?: number): void; show(on: boolean): void; onHero(f: (h: Hero) => void): void }
 
 export async function buildHeroPage(canvas: Node): Promise<HeroPage> {
   let everyone: Hero[] = [], cap: number | undefined, campFilter = 0;
+  let tapHero: (h: Hero) => void = () => {};
   let renderHeroes = () => {}; // set once the grid code below exists; the camp buttons are wired before that
   const [win, table] = await Promise.all([loadJson<LNode>("layouts/hero/hero_bag_window.json"), loadJson<PartnerTable>("tables/partners.json")]);
   const built = await buildLayout(win, canvas, {
@@ -106,6 +107,11 @@ export async function buildHeroPage(canvas: Node): Promise<HeroPage> {
     const cell = new Node(`hero_${h.bid}`);
     cell.layer = view.layer;
     cell.addComponent(UITransform).setContentSize(CELL, CELL);
+    cell.on(Node.EventType.TOUCH_END, (e: { getUILocation(): { x: number; y: number }; getUIStartLocation(): { x: number; y: number } }) => {
+      // a drag that scrolled the grid is not a tap
+      const a = e.getUILocation(), b = e.getUIStartLocation();
+      if (Math.abs(a.x - b.x) + Math.abs(a.y - b.y) < 10) tapHero(h);
+    });
     const star = Math.max(1, h.star);
     setFrame(sprite(cell, "quality", 0, 0, CELL, CELL), common(`common_${1005 + Math.min(5, star - 1)}`));
     const headId = table.head[`${h.bid}_${h.star}`] ?? h.bid;
@@ -171,5 +177,6 @@ export async function buildHeroPage(canvas: Node): Promise<HeroPage> {
     root,
     setHeroes(list, capacity) { everyone = list; cap = capacity; render(); },
     show(on) { root.active = on; },
+    onHero(f) { tapHero = f; },
   };
 }

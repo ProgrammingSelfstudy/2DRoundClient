@@ -6,6 +6,7 @@ import { buildLoginPage } from "./loginpage";
 import { buildMainPage } from "./mainpage";
 import { buildBackpackPage } from "./backpackpage";
 import { buildHeroPage } from "./heropage";
+import { buildHeroDetail } from "./herodetail";
 import { buildDramaPage } from "./dramapage";
 import { buildQuickWindow } from "./quickwindow";
 import { buildHookReward } from "./hookreward";
@@ -97,6 +98,12 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
       const bids = [10101, 10201, 10202, 10301, 10302, 10303, 10304, 10305, 10401, 10402, 10403, 10404, 10405, 10501, 10502, 10503, 10504, 10505, 10506, 10507];
       const heroDemo = q.get("herodemo") === "1" ? Array.from({ length: 60 }, (_, i) => ({ partner_id: i + 1, bid: bids[i % bids.length], lev: 1 + i, star: 1 + (i % 5), power: 1000 * i })) : null;
       heroes.setHeroes((heroDemo ?? city.partners) as unknown as Parameters<typeof heroes.setHeroes>[0], Number(city.heroBag?.num ?? 0));
+      const detail = await buildHeroDetail(canvas);
+      // tapping a hero opens its info window at once with what the list has, then fills the attribute list from 11063
+      heroes.onHero(async h => {
+        detail.open(h, null);
+        try { detail.setAttrs(h.partner_id, await session.request(11063, { partner_id: h.partner_id }, 11063)); } catch (e) { toast(canvas, (e as Error).message); }
+      });
       const drama = await buildDramaPage(canvas);
       drama.setDrama(city.drama, Number((city.role as Record<string, unknown>).lev ?? 0));
       const battle = await buildBattleScene(canvas);
@@ -149,7 +156,7 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
       // 10923: the server tells one activity icon opening or closing while the player is in the city
       session.on(10923, m => main.icons.setOpen(Number(m.id), Number(m.status) !== 0));
       main.icons.onIcon(name => toast(canvas, `${name}：暂未开放`));
-      main.onTab(t => { heroes.show(t === 2); bag.show(t === 3); drama.show(t === 4); });
+      main.onTab(t => { detail.close(); heroes.show(t === 2); bag.show(t === 3); drama.show(t === 4); });
       // dev convenience: ?battledemo=1 stands the first battle's two models (hero 10401 star 4 = H30009, enemy 101011 = H30012) on the screen
       if (q.get("battledemo") === "1") {
         for (const [model, x] of [["H30009", -170], ["H30012", 170]] as const) {
