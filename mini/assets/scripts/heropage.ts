@@ -8,11 +8,11 @@ import { W, H } from "./loginpage";
 
 const COLS = 5;
 
-export interface HeroPage { root: Node; setHeroes(list: Hero[], capacity?: number): void; show(on: boolean): void; onHero(f: (h: Hero) => void): void }
+export interface HeroPage { root: Node; setHeroes(list: Hero[], capacity?: number): void; show(on: boolean): void; onHero(f: (h: Hero) => void): void; onEmbattle(f: () => void): void }
 
 export async function buildHeroPage(canvas: Node): Promise<HeroPage> {
   let everyone: Hero[] = [], cap: number | undefined, campFilter = 0;
-  let tapHero: (h: Hero) => void = () => {};
+  let tapHero: (h: Hero) => void = () => {}, embattle = () => {};
   let renderHeroes = () => {}; // set once the grid code below exists; the camp buttons are wired before that
   const [win, table] = await Promise.all([loadJson<LNode>("layouts/hero/hero_bag_window.json"), loadJson<PartnerTable>("tables/partners.json")]);
   const built = await buildLayout(win, canvas, {
@@ -33,6 +33,8 @@ export async function buildHeroPage(canvas: Node): Promise<HeroPage> {
     n.getComponent(UITransform)!.setContentSize(w, h);
   };
   await Promise.all([picture("background", "bg/hero/hero_bag_bg.webp", W, H), picture("box_1", "bg/hero/hero_bag_bg_1.webp", 720, 990)]);
+
+  built.byName.get("embattle_btn")?.on(Node.EventType.TOUCH_END, () => embattle()); // the formation button of the hero page
 
   // the camp filter on the hero tab: seven round buttons 58 wide and 20 apart centred on the node (HeroBagWindow.setCampBtnPos), the ring on "all"
   const camp = built.byName.get("camp_node")!;
@@ -112,5 +114,6 @@ export async function buildHeroPage(canvas: Node): Promise<HeroPage> {
     setHeroes(list, capacity) { everyone = list; cap = capacity; render(); },
     show(on) { root.active = on; },
     onHero(f) { tapHero = f; },
+    onEmbattle(f) { embattle = f; },
   };
 }

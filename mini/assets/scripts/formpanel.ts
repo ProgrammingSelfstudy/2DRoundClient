@@ -21,7 +21,7 @@ const MAX = 6, COLS = 5;
 
 export interface FormPanel {
   root: Node;
-  open(formation: Msg, heroes: Hero[]): void;
+  open(formation: Msg, heroes: Hero[], canFight?: boolean): void; // canFight false: the hero page's mode, save only (HeroConst.FormShowType.eFormSave)
   close(): void;
   onSave(f: (f: Formation) => Promise<boolean>): void;
   onFight(f: (f: Formation) => void): void;
@@ -188,7 +188,9 @@ export async function buildFormPanel(canvas: Node, notify: (text: string) => voi
 
   return {
     root,
-    open(formation, heroes) {
+    open(formation, heroes, canFight = true) {
+      fight.active = canFight;
+      save.setPosition(canFight ? 190 : 338, save.position.y, 0);
       everyone = heroes;
       formationType = Number(formation.formation_type) || 1;
       campFilter = 0;

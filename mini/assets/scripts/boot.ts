@@ -155,6 +155,9 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
         form.close();
         await go("fight");
       });
+      heroes.onEmbattle(async () => {
+        try { await refreshHeroes(); form.open(await session.request(11211, { type: 0 }, 11211), heroList(), false); } catch (e) { toast(canvas, (e as Error).message); }
+      });
       drama.onBoss(async a => {
         if (a === "level") return toast(canvas, "等级不足");
         if (a === "next") return go("next");
