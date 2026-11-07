@@ -154,6 +154,18 @@ def main(assets, version, groups):
             rewrite(t)
             put("layouts/" + csb.rsplit(".", 1)[0] + ".json", json.dumps(t, ensure_ascii=False, separators=(",", ":")).encode(), "json", g, cp)
 
+    if "centerscene" in groups:  # the atlas of the building plates; its plist has no name in resmap, the hash is of resource/centerscene/centerscene.plist
+        pl = plistlib.load(open(f"{pkg}/1/14DB545CBFF36DD3.plist", "rb"))
+        assert pl["metadata"]["textureFileName"] == "centerscene.png"
+        put("ui/centerscene/centerscene.json", json.dumps(atlas_json(pl, "bg/centerscene.webp", [256, 512]), separators=(",", ":")).encode(), "json", "centerscene", "resource/centerscene/centerscene.plist")
+        lua = f"{assets}/source/restored-source/outputs/readable-source/lua/ePoCrKQkWA3vpiOwu2oNfOh02MOeNheW/main_scene_data.lua"
+        src = open(lua, encoding="utf-8").read()
+        block = src[src.index("id = 1,") - 120:src.index("id = 2,")]  # Config.city_data[1], the main city (the next city's id comes before its own building list)
+        b = re.compile(r'bid = (\d+),\n\t+dir = (\d+),\n\t+dun_id = (\d+),\n\t+layer = (\d+),\n\t+name = "([^"]*)",\n\t+name_x = (-?\d+),\n\t+name_y = (-?\d+),\n\t+res = "([^"]*)",\n\t+type = (\d+),\n\t+x = (\d+),\n\t+y = (\d+)')
+        city = {"width": 1350, "height": 1280, "buildings": [dict(zip(("bid", "dir", "dun_id", "layer", "name", "name_x", "name_y", "res", "type", "x", "y"), [int(v) if v.lstrip("-").isdigit() else v for v in m.groups()])) for m in b.finditer(block)]}
+        assert len(city["buildings"]) == 7, len(city["buildings"])
+        put("tables/city.json", json.dumps(city, ensure_ascii=False, separators=(",", ":")).encode(), "json", "centerscene", "main_scene_data.lua")
+
     if "scene" in groups:  # the main-city scene layers named by scene_names.py (day and night are the same pictures in the package: time 1 only)
         for n in ("1", "2", "3", "4"):
             src = next(f for f in os.listdir(f"{assets}/scene/centercity/1") if f.startswith(n + "."))
