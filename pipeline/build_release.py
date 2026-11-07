@@ -154,6 +154,11 @@ def main(assets, version, groups):
             rewrite(t)
             put("layouts/" + csb.rsplit(".", 1)[0] + ".json", json.dumps(t, ensure_ascii=False, separators=(",", ":")).encode(), "json", g, cp)
 
+    if "scene" in groups:  # the main-city scene layers named by scene_names.py (day and night are the same pictures in the package: time 1 only)
+        for n in ("1", "2", "3", "4"):
+            src = next(f for f in os.listdir(f"{assets}/scene/centercity/1") if f.startswith(n + "."))
+            put(f"scene/centercity/{n}.webp", open(f"{assets}/scene/centercity/1/{src}", "rb").read(), "webp", "scene", f"resource/centerscene/centercity/1/{src}")
+
     if "icons-item" in groups:  # the item table the icons are looked up with (name, icon number, type, quality)
         from items_table import table
         lua = f"{assets}/source/restored-source/outputs/readable-source/lua/ePoCrKQkWA3vpiOwu2oNfOh02MOeNheW"
