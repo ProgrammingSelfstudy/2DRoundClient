@@ -58,12 +58,16 @@ def group_of(path):
         return "battledrama"
     if path.startswith("resource/battle/"):
         return "battle"
+    m = BATTLE_BG.match(path)  # a battle background: one group per map id, battlebg-10008
+    if m:
+        return "battlebg-" + m.group(1)
     m = SPINE_DIR.match(path)  # a Spine model: one group per model, named fx-E51130 / hero-H30036 as bundles.py does
     if m:
         return ("fx-" if m.group(1) == "E" else "hero-") + m.group(1) + m.group(2)
     return None
 
 
+BATTLE_BG = re.compile(r"^resource/bigbg/battle_bg/(\d+)/")
 SPINE_DIR = re.compile(r"^v9o8qm1Y40cbOAlh6LDp0kMDi5CzXlsO/([EH])(\d+)/")
 
 
@@ -98,6 +102,8 @@ def logical_image(path, group):
         return "icons/item/" + name
     if group == "icons-function":
         return "icons/function/" + name
+    if group.startswith("battlebg-"):
+        return f"bg/battle/{group.split('-', 1)[1]}/{name}"
     if group.startswith(("fx-", "hero-")):
         return spine_logical(path, group, "webp")
     raise SystemExit(f"no naming rule for group {group!r}; add one to logical_image() first")
@@ -125,6 +131,14 @@ def main(assets, version, groups):
     rep = f"{assets}/reports"
     audit = {r["name"].rsplit(".", 1)[0]: r for r in json.load(open(f"{rep}/audit.json"))["images"]}
     found = json.load(open(f"{rep}/resmap.json"))["found"]
+    for g in groups:  # a battle background's layers have no entry in resmap (their names are built by the Lua), so look them up by hash
+        if g.startswith("battlebg-"):
+            sys.path.insert(0, f"{assets}/source/restored-source/outputs/recovery-tools")
+            from resource_hash import resource_hash
+            for name in ("b_bg.jpg", "map_bg.png", "m_bg.jpg"):
+                p = f"resource/bigbg/battle_bg/{g.split('-', 1)[1]}/{name}"
+                if resource_hash(p) in audit:
+                    found[resource_hash(p)] = p
     inv = {p: h for h, p in found.items()}
     z = zipfile.ZipFile(f"{assets}/source/decrypted-images.zip")
     pkg = f"{assets}/source/restored-source/outputs/apk-extracted/assets/HASH"
@@ -223,6 +237,11 @@ def main(assets, version, groups):
         from dungeons_table import table as dungeons
         lua = f"{assets}/source/restored-source/outputs/readable-source/lua/ePoCrKQkWA3vpiOwu2oNfOh02MOeNheW"
         put("tables/dungeons.json", json.dumps(dungeons(lua), ensure_ascii=False, separators=(",", ":")).encode(), "json", "battledrama", "dungeon_data.lua")
+
+    if "battle" in groups:  # which Spine model a hero (bid_star) or a main-line monster (unit id) is drawn with
+        from battle_models_table import table as battle_models
+        lua = f"{assets}/source/restored-source/outputs/readable-source/lua/ePoCrKQkWA3vpiOwu2oNfOh02MOeNheW"
+        put("tables/battle_models.json", json.dumps(battle_models(lua), ensure_ascii=False, separators=(",", ":")).encode(), "json", "battle", "partner_data.lua, unit_data*.lua")
 
     manifest = {"version": version, "platform": "web", "files": files}
     json.dump(manifest, open(f"{out}/manifest.web.json", "w"), ensure_ascii=False, indent=1)
