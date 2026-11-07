@@ -51,6 +51,8 @@ def group_of(path):
         return "icons-head"
     if path.startswith("resource/item/"):
         return "icons-item"
+    if path.startswith("resource/functionicon/"):
+        return "icons-function"
     return None
 
 
@@ -74,6 +76,8 @@ def logical_image(path, group):
         return "icons/head/" + name
     if group == "icons-item":
         return "icons/item/" + name
+    if group == "icons-function":
+        return "icons/function/" + name
     raise SystemExit(f"no naming rule for group {group!r}; add one to logical_image() first")
 
 
@@ -180,6 +184,11 @@ def main(assets, version, groups):
         from partners_table import table as partners
         lua = f"{assets}/source/restored-source/outputs/readable-source/lua/ePoCrKQkWA3vpiOwu2oNfOh02MOeNheW"
         put("tables/partners.json", json.dumps(partners(lua), ensure_ascii=False, separators=(",", ":")).encode(), "json", "icons-head", "partner_data.lua")
+
+    if "icons-function" in groups:  # the level-opened function icons: id -> icon picture, row, order, name, level
+        from functions_table import table as functions
+        lua = f"{assets}/source/restored-source/outputs/readable-source/lua/ePoCrKQkWA3vpiOwu2oNfOh02MOeNheW"
+        put("tables/functions.json", json.dumps(functions(lua), ensure_ascii=False, separators=(",", ":")).encode(), "json", "icons-function", "function_data.lua")
 
     manifest = {"version": version, "platform": "web", "files": files}
     json.dump(manifest, open(f"{out}/manifest.web.json", "w"), ensure_ascii=False, indent=1)

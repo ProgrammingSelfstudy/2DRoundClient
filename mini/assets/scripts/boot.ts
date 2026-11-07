@@ -93,6 +93,7 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
       const main = await buildMainPage(canvas); // built after the pages so the top bar and the tabs stay on top of them
       main.setCity(city);
       // tab 2 is the heroes, 3 the backpack, 4 the main city; the other tabs have no page yet
+      main.icons.onIcon(name => toast(canvas, `${name}：暂未开放`));
       main.onTab(t => { heroes.show(t === 2); bag.show(t === 3); });
       page.hide(); // the login page gives way to the main city
     } catch {
