@@ -3,7 +3,7 @@
 // Left out for now: the privilege count and the paid confirmation, the explain tip, and the energy-overflow alert.
 import { Color, HorizontalTextAlignment, Label, Mask, Node, Sprite, UITransform, VerticalTextAlignment } from "cc";
 import { atlasFrame, loadJson, spriteFrame } from "./cdn";
-import { LNode, buildLayout } from "./ui";
+import { LNode, buildLayout, blockInput } from "./ui";
 import { W, H } from "./loginpage";
 import type { Msg } from "./shared/proto/codec";
 
@@ -24,6 +24,7 @@ export async function buildQuickWindow(canvas: Node): Promise<QuickWindow> {
   const by = built.byName;
   const root = built.root;
   root.setPosition(-W / 2, -H / 2, 0);
+  blockInput(root, W, H);
   root.active = false;
   const main = by.get("root")!;
   const text = (parent: Node, str: string, x: number, y: number, size: number, color: Color, ax = 0.5, ay = 0.5, w = 300, h = size + 8, wrap = false) => {

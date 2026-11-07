@@ -1,7 +1,7 @@
 // Builds a UI from a layout tree shipped in the release (layouts/**.json, made from the original .csb by pipeline/csb_tree.py).
 // Positions are the original's: in the parent's space with its bottom-left as origin. A Creator child is placed relative to the parent's
 // anchor point, so each position is moved by anchor * size of the parent. Every image comes from an atlas of the release.
-import { Color, EditBox, Graphics, HorizontalTextAlignment, Label, Node, Sprite, UITransform, VerticalTextAlignment } from "cc";
+import { BlockInputEvents, Color, EditBox, Graphics, HorizontalTextAlignment, Label, Node, Sprite, UITransform, VerticalTextAlignment } from "cc";
 import { atlasFrame, spriteFrame } from "./cdn";
 
 export interface LRes { slot: number; path: string; plist: string; atlas: string; image?: string }
@@ -159,6 +159,18 @@ function addInput(node: Node, n: LNode, size: number[], fontSize: number) {
   text.verticalAlign = VerticalTextAlignment.CENTER; // EditBox sets the text label to top alignment while it initialises
 }
 
+// Swallows the touches that fall on a window or page, so they do not reach what is drawn behind it (the city scene's buildings, the stage page's buttons).
+// The node covers three times the design size around the root's origin corner, so a taller or wider screen is covered too. It goes first among the
+// root's children, so the window's own buttons stay on top of it.
+export function blockInput(root: Node, w: number, h: number): void {
+  const n = new Node("block");
+  n.layer = root.layer;
+  n.addComponent(UITransform).setContentSize(w * 3, h * 3);
+  n.addComponent(BlockInputEvents);
+  n.setPosition(w / 2, h / 2, 0);
+  root.insertChild(n, 0);
+}
+
 // A full-screen page sits over the city picture; the original's window background is partly transparent, so the page gets an opaque dark
 // base under it (the base is larger than the design so it also covers the bars of a taller window).
 export function opaqueBase(root: Node, w: number, h: number): void {
@@ -171,4 +183,5 @@ export function opaqueBase(root: Node, w: number, h: number): void {
   g.fill();
   n.setPosition(w / 2, h / 2, 0); // the page root's origin is its bottom-left corner
   root.insertChild(n, 0);
+  blockInput(root, w, h);
 }

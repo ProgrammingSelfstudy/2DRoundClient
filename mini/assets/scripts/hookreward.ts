@@ -3,7 +3,7 @@
 // Left out for now: the role's head picture in the frame, the title's Spine effect (278) and the items' quality frames.
 import { Color, HorizontalTextAlignment, Label, Mask, Node, Sprite, UITransform, VerticalTextAlignment } from "cc";
 import { loadJson, spriteFrame } from "./cdn";
-import { LNode, buildLayout } from "./ui";
+import { LNode, buildLayout, blockInput } from "./ui";
 import { W, H } from "./loginpage";
 import type { Msg } from "./shared/proto/codec";
 
@@ -25,6 +25,7 @@ export async function buildHookReward(canvas: Node): Promise<HookReward> {
   const by = built.byName;
   const root = built.root;
   root.setPosition(-W / 2, -H / 2, 0);
+  blockInput(root, W, H);
   root.active = false;
   const label = (name: string) => by.get(name)!.getComponent(Label)!;
   const bar = by.get("progress")!.getComponent(Sprite)!;

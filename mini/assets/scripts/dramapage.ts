@@ -3,7 +3,7 @@
 // boss picture, fighting and the quick-battle window come later.
 import { Color, Graphics, HorizontalTextAlignment, Label, Mask, Node, Sprite, UITransform, VerticalTextAlignment } from "cc";
 import { loadJson, spriteFrame } from "./cdn";
-import { LNode, buildLayout } from "./ui";
+import { LNode, buildLayout, blockInput } from "./ui";
 import { W, H } from "./loginpage";
 import type { Msg } from "./shared/proto/codec";
 
@@ -39,6 +39,7 @@ export async function buildDramaPage(canvas: Node): Promise<DramaPage> {
   backdrop.active = false;
   canvas.addChild(backdrop);
   backdrop.setSiblingIndex(root.getSiblingIndex()); // under the panel, over the city scene
+  blockInput(backdrop, W, H); // so a tap on the map does not reach the city scene's buildings behind it
   // the ground picture is transparent in its lowest 114 rows (the original's battle UI covers them), so the city scene showed through as a blue band
   // above the bottom bar: a floor in the ground's colour goes under it
   const floor = new Node("floor");

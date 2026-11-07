@@ -4,7 +4,7 @@
 // button and the "current fight" line.
 import { Color, HorizontalTextAlignment, Label, Mask, Node, Sprite, UITransform, VerticalTextAlignment } from "cc";
 import { atlasFrame, loadJson, spriteFrame } from "./cdn";
-import { LNode, buildLayout } from "./ui";
+import { LNode, buildLayout, blockInput } from "./ui";
 import type { Msg } from "./shared/proto/codec";
 
 type ItemTable = { [id: string]: [string, number, number, number] };
@@ -23,6 +23,7 @@ export async function buildMvpWindow(canvas: Node): Promise<MvpWindow> {
   const by = built.byName;
   const root = built.root;
   root.setPosition(-360, -640, 0);
+  blockInput(root, 720, 1280);
   root.active = false;
   const container = by.get("container")!;
   by.get("pic_mvp")!.setPosition(0, 1155, 0); // the layout holds the end of the original's slide-in

@@ -4,7 +4,7 @@
 // "back to the mode" button and the damage statistics window.
 import { Color, Graphics, HorizontalTextAlignment, Label, Node, Sprite, UITransform, VerticalTextAlignment } from "cc";
 import { atlasFrame, loadJson } from "./cdn";
-import { LNode, buildLayout } from "./ui";
+import { LNode, buildLayout, blockInput } from "./ui";
 
 export interface FailWindow { root: Node; open(): Promise<void> }
 
@@ -15,6 +15,7 @@ export async function buildFailWindow(canvas: Node): Promise<FailWindow> {
   const built = await buildLayout(layout, canvas, { hide: ["harm_btn"] });
   const root = built.root;
   root.setPosition(-360, -640, 0);
+  blockInput(root, 720, 1280);
   root.active = false;
   const container = built.byName.get("container")!; // anchored in the middle, 720 x 505
 
