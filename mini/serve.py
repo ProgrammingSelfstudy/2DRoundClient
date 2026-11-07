@@ -36,6 +36,21 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def end_headers(self):
+        # The build's own files (index.js, the game bundle) keep the same names between builds, so without this a browser decides by itself
+        # how long its copy is good for and keeps running an old build. no-cache means: ask every time, 304 when nothing changed.
+        # /cdn/f/ files have their own header (named by content hash, immutable) and are left alone.
+        if not self.path.startswith("/cdn/") and not any(h.lower() == "cache-control" for h, _ in self._headers_buffer_pairs()):
+            self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
+
+    def _headers_buffer_pairs(self):
+        out = []
+        for line in getattr(self, "_headers_buffer", []):
+            k, _, v = line.decode("latin-1").partition(":")
+            out.append((k.strip(), v.strip()))
+        return out
+
     def do_GET(self):
         if self.path.startswith("/cdn/"):
             return self.cdn()
