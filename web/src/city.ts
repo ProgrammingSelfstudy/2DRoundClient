@@ -20,6 +20,7 @@ export interface City {
   heroBag: Msg | undefined;   // 11025 itself: sort_type, num (the bag's capacity), buy_num
   quests: Msg[];              // 10403
   items: Msg[];               // 10500, the backpack's first tab
+  icons: number[];            // ids of the activity icons the server says are open (10922 and 10924: status other than 0)
   frames: { cmd: number; fields: number }[]; // every command that answered
 }
 
@@ -52,7 +53,17 @@ export function readCity(last: ReadonlyMap<number, Msg>): City {
     heroBag: last.get(11025),
     quests: (last.get(10403)?.quest_list as Msg[] | undefined) ?? [],
     items: (last.get(10500)?.item_list as Msg[] | undefined) ?? [],
+    icons: openIcons(last),
     // Array.from, not [...last.entries()]: Creator down-levels spread of an iterator into something that yields undefined
     frames: Array.from(last, ([cmd, m]) => ({ cmd, fields: Object.keys(m).length })).sort((a, b) => a.cmd - b.cmd)
   };
+}
+
+// 10922 (asked at login) and 10924 both list {id, status}; status 0 is "not open". The same id in both is one icon.
+function openIcons(last: ReadonlyMap<number, Msg>): number[] {
+  const ids = new Set<number>();
+  for (const cmd of [10922, 10924]) {
+    for (const a of (last.get(cmd)?.act_list as Msg[] | undefined) ?? []) if (Number(a.status) !== 0) ids.add(Number(a.id));
+  }
+  return Array.from(ids);
 }

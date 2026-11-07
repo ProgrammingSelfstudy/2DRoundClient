@@ -1,13 +1,14 @@
 // The main city's function icons, placed as MainUiView.setIconPosition does (design coordinates, origin bottom-left, 720x1280): a row of up to
-// six under the top bar (type 1), a column down the right edge (type 2) and a row along the bottom right (type 3). Only the icons the original
-// opens by player level are here; the activity icons the server pushes (first charge, seven-day login, ...) are not built yet.
+// six under the top bar (type 1), a column down the right edge (type 2) and a row along the bottom right (type 3). Level-opened icons come from
+// the table alone; an activity icon shows once the server lists it as open (setPushed).
 // Types 3 and 4 (the bottom row and the column above the handle) fold away behind the round "+" handle, as MainUiView.shrinkBtnContainer does.
 import { Color, Label, Node, Sprite, UIOpacity, UITransform, tween } from "cc";
 import { atlasFrame, loadJson, spriteFrame } from "./cdn";
 
-// id -> [icon picture, row type, order, name, level to open], from tables/functions.json
-type FunctionTable = { [id: string]: [string, number, number, string, number] };
-export interface IconBar { root: Node; setLevel(lev: number): void; show(on: boolean): void; onIcon(f: (name: string) => void): void }
+// id -> [icon picture, row type, order, name, level to open, open type], from tables/functions.json; open type 1 opens by level alone, 2 (an
+// activity) also needs the server to say so
+type FunctionTable = { [id: string]: [string, number, number, string, number, number] };
+export interface IconBar { root: Node; setLevel(lev: number): void; setPushed(ids: number[]): void; show(on: boolean): void; onIcon(f: (name: string) => void): void }
 
 const TOP_H = 97;
 const SKIP = new Set(["111"]); // 游戏中心: opened by the platform's own channel, not shown in the capture
@@ -22,6 +23,7 @@ export async function buildIconBar(parent: Node): Promise<IconBar> {
   parent.addChild(root);
   let tapped = (_n: string) => {};
   let lev = 0;
+  let pushed = new Set<string>();
 
   // the two folding groups and the handle; the groups hold icons at absolute positions and slide as a whole
   const group = (name: string) => {
@@ -97,7 +99,7 @@ export async function buildIconBar(parent: Node): Promise<IconBar> {
     column.removeAllChildren();
     for (const n of root.children.slice()) if (n !== row && n !== column && n !== handle) root.removeChild(n);
     const open = Object.entries(table)
-      .filter(([id, r]) => !SKIP.has(id) && r[4] <= lev)
+      .filter(([id, r]) => !SKIP.has(id) && r[4] <= lev && (r[5] === 1 || pushed.has(id)))
       .map(([, r]) => ({ res: r[0], type: r[1], index: r[2], name: r[3] }))
       .sort((a, b) => a.index - b.index);
     const of = (type: number) => open.filter(o => o.type === type);
@@ -131,6 +133,7 @@ export async function buildIconBar(parent: Node): Promise<IconBar> {
   return {
     root,
     setLevel(l) { lev = l; layout(); },
+    setPushed(ids) { pushed = new Set(ids.map(String)); layout(); },
     show(on) { root.active = on; },
     onIcon(f) { tapped = f; },
   };

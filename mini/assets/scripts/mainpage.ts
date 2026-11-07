@@ -84,6 +84,7 @@ export async function buildMainPage(canvas: Node): Promise<MainPage> {
       const a = (c.assets ?? {}) as Record<string, unknown>;
       if (label("name_label")) label("name_label")!.string = String(r.name ?? "");
       if (label("lev_label")) label("lev_label")!.string = String(r.lev ?? "");
+      icons.setPushed((c.icons ?? []) as number[]);
       icons.setLevel(Number(new URLSearchParams(location.search).get("lev") ?? r.lev ?? 0)); // ?lev= is a dev override to see higher-level icons
       if (label("fight_label")) label("fight_label")!.string = num(r.power);
       // the bar shows three currencies (icons of items 2, 3 and 41); which 10302 field the third is has not been matched to the original yet
