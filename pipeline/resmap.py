@@ -188,6 +188,12 @@ def main(root, audit_path, out_dir):
                 try_path("".join(next(it) if x in ("%s", "%d") else x for x in parts), "template")
         else:
             skipped.append(t)
+    # The boss portraits are built as "resource/headicon/b" .. head_icon .. ".jpg" (battle_drama_top_view.lua), a concatenation the
+    # templates above do not see.
+    portrait_before = len(found)
+    for i in range(100001):
+        try_path(f"resource/headicon/b{i}.jpg", "template")
+    print(f"boss portraits: resolved {len(found) - portrait_before} files")
     print(f"templates: {len(templates)} found, {len(templates) - len(skipped)} filled, resolved {len(found) - tmpl_before} files")
     print("not filled:", skipped)
 

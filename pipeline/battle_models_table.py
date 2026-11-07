@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """The battle model table for the release, read by running the restored Lua data files in LuaJIT (their row layouts differ by file, so the
 files' own accessors are the reliable reader):
+  b: "<unit id>" -> head_icon of the stage unit's boss, the picture resource/headicon/b<head_icon>.jpg the stage page shows
   p: "<bid>_<star>" -> Spine model of a hero (Config.PartnerData.data_partner_star res_id)
   u: "<unit id>" -> [body model, model_size in thousandths] for the monsters of the main-line stages (the stage's unit and its monster1..5, boss)
 
@@ -27,9 +28,15 @@ local function unit(id)
   out.u[tostring(id)] = {u.body_id, u.model_size or 1000}
   for _, k in ipairs({"monster1", "monster2", "monster3", "monster4", "monster5", "boss_id"}) do unit(u[k]) end
 end
+out.b = {}
 for id, _ in pairs(Config.DungeonData.data_drama_dungeon_info_table) do
   local d = Config.DungeonData.data_drama_dungeon_info(id)
-  if d then unit(d.unit_id) end
+  if d then
+    unit(d.unit_id)
+    local u = Config.UnitData.data_unit(d.unit_id)
+    local boss = u and Config.UnitData.data_unit(u.boss_id)
+    if boss and boss.head_icon then out.b[tostring(d.unit_id)] = boss.head_icon end
+  end
 end
 for key, _ in pairs(Config.PartnerData.data_partner_star_table) do
   local s = Config.PartnerData.data_partner_star(key)

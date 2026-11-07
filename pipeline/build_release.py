@@ -30,7 +30,7 @@ from skel_to_json import convert  # noqa: E402
 
 LAYOUTS = {"boot": ["login/user_panel.csb"], "mainui": ["mainui/mainui_view.csb"],
            "backpack": ["backpack/backpack_window.csb", "backpack/goods_item.csb"],
-           "hero": ["hero/hero_bag_window.csb"], "battledrama": ["battle/battle_button_list.csb"]}  # group -> csb paths (under the recovered csb directory) shipped as layouts
+           "hero": ["hero/hero_bag_window.csb"], "battledrama": ["battle/battle_button_list.csb", "battledrama/battle_drama_quick_battle_windows.csb", "battledrama/battle_drama_hook_reward_windows.csb"]}  # group -> csb paths (under the recovered csb directory) shipped as layouts
 
 
 def group_of(path):
@@ -54,8 +54,12 @@ def group_of(path):
         return "icons-item"
     if path.startswith("resource/functionicon/"):
         return "icons-function"
+    if path in ("resource/bigbg/bigbg_2.jpg", "resource/bigbg/pattern/pattern_3.png", "resource/bigbg/bigbg_50.png"):  # the backpack window's backdrop and the strip over its paper; the girl of the quick battle window
+        return "bigbg-bag"
     if path.startswith("resource/bigbg/hero/"):  # the hero bag's window pictures, set by hero_bag_window.lua over the layout's placeholders
         return "bigbg-hero"
+    if path.startswith("resource/levupgrade/"):  # the level-up window's pieces, which the hook reward window shares
+        return "levupgrade"
     if path.startswith("resource/battledrama/"):
         return "battledrama"
     if path.startswith("resource/battle/"):
@@ -94,8 +98,12 @@ def logical_image(path, group):
         return "ui/herobag/" + name
     if group == "hero":
         return "ui/hero/" + name
+    if group == "bigbg-bag":
+        return "bg/" + name
     if group == "bigbg-hero":
         return "bg/hero/" + name
+    if group == "levupgrade":
+        return "ui/levupgrade/" + name
     if group == "battledrama":
         return "ui/battledrama/" + name
     if group == "battle":
@@ -241,6 +249,8 @@ def main(assets, version, groups):
         from dungeons_table import table as dungeons
         lua = f"{assets}/source/restored-source/outputs/readable-source/lua/ePoCrKQkWA3vpiOwu2oNfOh02MOeNheW"
         put("tables/dungeons.json", json.dumps(dungeons(lua), ensure_ascii=False, separators=(",", ":")).encode(), "json", "battledrama", "dungeon_data.lua")
+        from role_exp_table import table as role_exp  # the exp bar of the hook and quick battle reward window
+        put("tables/role_exp.json", json.dumps(role_exp(lua), separators=(",", ":")).encode(), "json", "battledrama", "role_data.lua")
 
     if "battle" in groups:  # which Spine model a hero (bid_star) or a main-line monster (unit id) is drawn with
         from battle_models_table import table as battle_models

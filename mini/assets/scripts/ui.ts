@@ -15,6 +15,7 @@ export interface LNode {
   res: LRes[];
   strings: { slot: number; text: string }[];
   s9: { cap: number[]; size: number[] | null; on: boolean } | null;
+  visible?: boolean; // only present as false: a node the layout hides until the Lua shows it
   children: LNode[];
 }
 export interface Built { root: Node; byName: Map<string, Node> }
@@ -41,7 +42,7 @@ async function make(n: LNode, p: LNode | null, layer: number, byName: Map<string
   node.setPosition(pos[0] - pa[0] * ps[0], pos[1] - pa[1] * ps[1], 0);
   if (n.scale) node.setScale(n.scale[0], n.scale[1], 1);
   if (n.name) byName.set(n.name, node);
-  if (opts.hide?.indexOf(n.name) !== undefined && opts.hide.indexOf(n.name) >= 0) node.active = false;
+  if (n.visible === false || (opts.hide?.indexOf(n.name) !== undefined && opts.hide.indexOf(n.name) >= 0)) node.active = false; // visible=false: the layout's own flag
 
   switch (n.class) {
     case "ImageView":

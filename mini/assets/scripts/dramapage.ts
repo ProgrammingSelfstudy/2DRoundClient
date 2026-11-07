@@ -8,21 +8,22 @@ import { W, H } from "./loginpage";
 import type { Msg } from "./shared/proto/codec";
 
 // id -> [name, unit id, shown rewards [item, count], per-minute rewards [item, count], level limit, next stage], from tables/dungeons.json
-type StageTable = { [id: string]: [string, number, number[][], number[][], number, number] };
+type StageTable = { [id: string]: [string, number, number[][], number[][], number, number, number[][]] };
 type ItemTable = { [id: string]: [string, number, number, number] };
 // what the boss button asks for: "next" goes to the next chapter (status 3), "fight" challenges the boss, "level" is short of the level limit
 export type BossAction = "next" | "fight" | "level";
-export interface DramaPage { root: Node; setDrama(d: Msg | undefined, roleLev: number): void; show(on: boolean): void; onBoss(f: (a: BossAction) => void): void }
+export interface DramaPage { root: Node; setDrama(d: Msg | undefined, roleLev: number): void; show(on: boolean): void; onBoss(f: (a: BossAction) => void): void; onQuick(f: () => void): void; maxDunId(): number }
 
 const FIRST_STAGE = 10010; // what the original shows before anything has been passed (max_dun_id 0)
 
 export async function buildDramaPage(canvas: Node): Promise<DramaPage> {
-  const [layout, stages, items] = await Promise.all([
+  const [layout, stages, items, models] = await Promise.all([
     loadJson<LNode>("layouts/battle/battle_button_list.json"),
     loadJson<StageTable>("tables/dungeons.json"),
     loadJson<ItemTable>("tables/items.json"),
+    loadJson<{ b: { [unit: string]: number } }>("tables/battle_models.json"), // b: stage unit -> head_icon of its boss
   ]);
-  const built = await buildLayout(layout, canvas, { hide: ["image_boss", "encounter_btn", "next_battle_time", "tips"] });
+  const built = await buildLayout(layout, canvas, { hide: ["encounter_btn", "next_battle_time", "tips"] });
   const by = built.byName;
   const root = built.root;
   root.setPosition(-W / 2, -H / 2 + 108 - 65, 0); // root_wnd's bottom sits above the bottom bar (the original: -bottom height - 65, anchored bottom-centre)
@@ -82,6 +83,7 @@ export async function buildDramaPage(canvas: Node): Promise<DramaPage> {
     return n;
   };
 
+  const bossPic = by.get("image_boss")!;
   const boss = by.get("guildsign_battle_boss_btn")!;
   const bossNotice = text("notice_label")!;
   const bossChallenge = by.get("challenge_item")!;
@@ -91,6 +93,13 @@ export async function buildDramaPage(canvas: Node): Promise<DramaPage> {
     const st = stages[String(stageId)] ?? stages[String(FIRST_STAGE)];
     text("title_pass")!.string = st[0];
     descLabel.string = "《ONE PIECE》";
+    const head = models.b[String(st[1])];
+    if (head !== undefined) {
+      let sp = bossPic.getComponent(Sprite);
+      if (!sp) { sp = bossPic.addComponent(Sprite); sp.sizeMode = Sprite.SizeMode.CUSTOM; } // the layout's picture has no texture, so no Sprite was built
+      const pic = sp;
+      spriteFrame(`icons/head/b${head}.webp`).then(sf => { if (bossPic.isValid) pic.spriteFrame = sf; }, () => {}); // a boss with no picture keeps the layout's
+    }
     hook.forEach(n => n.destroy());
     hook.length = 0;
     // per-minute hook rewards, listed from the bottom up as "<icon> N/m"
@@ -125,13 +134,19 @@ export async function buildDramaPage(canvas: Node): Promise<DramaPage> {
   let action: BossAction = "fight";
   let handler = (_a: BossAction) => {};
   boss.on(Node.EventType.TOUCH_END, () => handler(action));
+  let quickHandler = () => {};
+  by.get("guidesign_battle_quick_btn")!.on(Node.EventType.TOUCH_END, () => quickHandler());
+  let maxDun = 0; // max_dun_id of the last 13000/13001: the quick battle window lists the drops of that stage
 
   return {
     root,
     show(on) { root.active = on; },
     onBoss(f) { handler = f; },
+    onQuick(f) { quickHandler = f; },
+    maxDunId() { return maxDun; },
     setDrama(d, roleLev) {
       const maxId = Number(d?.max_dun_id ?? 0);
+      maxDun = maxId;
       fill(maxId === 0 ? FIRST_STAGE : Number(d?.dun_id ?? FIRST_STAGE));
       // status 2 with no cool-down: the boss can be challenged (or needs a level); 3: this chapter is done; 1 with a cool-down: waiting
       const status = Number(d?.status ?? 0), cool = Number(d?.cool_time ?? 0);

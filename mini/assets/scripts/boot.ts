@@ -7,6 +7,8 @@ import { buildMainPage } from "./mainpage";
 import { buildBackpackPage } from "./backpackpage";
 import { buildHeroPage } from "./heropage";
 import { buildDramaPage } from "./dramapage";
+import { buildQuickWindow } from "./quickwindow";
+import { buildHookReward } from "./hookreward";
 import { spineNode } from "./spine";
 import { buildBattleScene } from "./battlescene";
 import { Feed, runFight } from "./battleflow";
@@ -121,6 +123,22 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
         } catch (e) { toast(canvas, (e as Error).message); }
       });
       const main = await buildMainPage(canvas); // built after the pages so the top bar and the tabs stay on top of them
+      // the quick battle window sits over everything, the way the original's dialogue does
+      const quick = await buildQuickWindow(canvas);
+      session.on(13006, m => quick.setQuick(m)); // after a quick battle the server pushes the new count
+      const reward = await buildHookReward(canvas); // 13007: what a quick battle or a hook claim paid
+      session.on(13007, m => { quick.close(); reward.open(m); });
+      // dev convenience: ?rewarddemo=1 opens the reward window with a made-up quick battle that gains a level, to look at the bar and the item grid
+      if (q.get("rewarddemo") === "1") reward.open({ type: 2, time: 7200, old_lev: 5, new_lev: 6, old_exp: 400, new_exp: 150, vip_buff: 0, honor_buff: 0, items: [1, 3, 10001, 10002, 10003, 20001, 30001, 40001, 50001].map((bid, i) => ({ bid, num: 100 * (i + 1) })) } as never);
+      drama.onQuick(async () => {
+        try { quick.open(drama.maxDunId() || 10010, await session.request(13006, {}, 13006)); } catch (e) { toast(canvas, (e as Error).message); }
+      });
+      quick.onQuick(async () => {
+        try {
+          const reply = await session.request(13004, {}, 13004);
+          toast(canvas, String(reply.msg ?? ""));
+        } catch (e) { toast(canvas, (e as Error).message); }
+      });
       main.setCity(city);
       // tab 1 is the main city, 2 the heroes, 3 the backpack, 4 the stages; the other tabs have no page yet
       // 10923: the server tells one activity icon opening or closing while the player is in the city

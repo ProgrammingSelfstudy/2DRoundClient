@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Dump the whole node tree of a .csb as JSON: what a UI has to be rebuilt from. Read-only. Layout of the file: see csb.py.
 
-Per node: class, name, pos, scale, anchor, size (WidgetOptions slots 7, 8, 9, 11), resources (any ResourceData table of the options),
+Per node: class, name, pos, scale, anchor, size (WidgetOptions slots 7, 8, 9, 11), visible (slot 4, only when false), resources (any ResourceData table of the options),
 strings (any plain string field of the options, e.g. the text of a Text node), s9 (nine-slice: capInsets x,y,w,h = the stretchable middle
 rectangle, the size it is stretched to, and whether it is on; ImageView slots 2/3/4, Button slots 9/10/11) and children. Positions are in the parent's own space with
 its bottom-left as origin, as Cocos Studio writes them.
@@ -31,6 +31,9 @@ def node(b, t):
             if wt is not None:
                 p = b.field(wt, 0)
                 n["name"] = b.string(p) if p else ""
+                vis = b.field(wt, 4)  # WidgetOptions visible, true when absent; written only when false
+                if vis is not None and not b.b[vis]:
+                    n["visible"] = False
                 for key, slot in (("pos", 7), ("scale", 8), ("anchor", 9), ("size", 11)):
                     v = pair(b, wt, slot)
                     n[key] = [round(v[0], 2), round(v[1], 2)] if v else None
