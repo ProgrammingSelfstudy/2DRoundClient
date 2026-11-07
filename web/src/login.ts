@@ -5,7 +5,7 @@ import type { Session } from "./session.ts";
 
 export type Step = (name: string, state: "doing" | "done" | "fail", detail?: string) => void;
 export interface Server { srv_id: string; name: string; ip: string; port: number; is_maintain: boolean; }
-export interface Entered { rid: number; name: string; srv_id: string; created: boolean; }
+export interface Entered { rid: number; name: string; srv_id: string; created: boolean; token: string; }
 
 const PLATFORM = "symlf";
 let HTTP_BASE = "/loginapi"; // the dev server proxies this to the login HTTP service, so the browser stays on one origin
@@ -85,7 +85,9 @@ function loginArgs(account: string, token: string, srvId: string): Msg[] {
   return kv.map(([key, val]) => ({ key, val }));
 }
 
-export async function enterGame(session: Session, wsUrl: string, account: string, password: string, step: Step): Promise<Entered> {
+// `savedToken` is a token from an earlier login (the server keeps one valid for its whole lifetime): with it the HTTP login is skipped, so a page
+// reload needs no password. A token the server no longer accepts fails at 1164 like a wrong password would.
+export async function enterGame(session: Session, wsUrl: string, account: string, password: string, step: Step, savedToken?: string): Promise<Entered> {
   const run = async <T>(name: string, f: () => Promise<{ value: T; detail?: string }>): Promise<T> => {
     step(name, "doing");
     try {
@@ -98,7 +100,7 @@ export async function enterGame(session: Session, wsUrl: string, account: string
     }
   };
 
-  const token = await run("账号登录（HTTP）", async () => ({ value: await httpLogin(account, password), detail: "拿到 token" }));
+  const token = savedToken ?? await run("账号登录（HTTP）", async () => ({ value: await httpLogin(account, password), detail: "拿到 token" }));
   const servers = await run("取服务器列表（HTTP）", async () => {
     const list = await serverList(account);
     return { value: list, detail: list.map(s => `${s.name}（${s.srv_id}）`).join("、") };
@@ -128,5 +130,5 @@ export async function enterGame(session: Session, wsUrl: string, account: string
     if (r.code !== 1) throw new Error(String(r.msg || `失败，code=${r.code}`));
     return { value: r, detail: `服务器时间 ${new Date(Number(r.timestamp) * 1000).toLocaleString()}` };
   });
-  return { rid: Number(role.rid), name: String(role.name), srv_id: srv.srv_id, created };
+  return { rid: Number(role.rid), name: String(role.name), srv_id: srv.srv_id, created, token };
 }

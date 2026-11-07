@@ -56,17 +56,22 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
   const sock = new GameSocket();
   const session = new Session(sock);
   const url = `ws://${location.hostname}:8802/ws`;
-  const run = async () => {
-    const acct = page.account.string.trim();
+  // `resume` is a login saved by an earlier visit: the account and the server's token, so a reload needs no password
+  const run = async (resume?: { account: string; token: string }) => {
+    const acct = resume?.account ?? page.account.string.trim();
     const pass = page.password.string;
-    if (!acct || !pass) return page.setStatus("请输入账号和密码", true);
+    if (!resume && (!acct || !pass)) return page.setStatus("请输入账号和密码", true);
     page.setBusy(true);
     try {
       const entered = await enterGame(session, url, acct, pass, (name, state, detail) => {
-        if (state === "fail") page.setStatus(`${name}：${detail ?? ""}`, true);
-        else if (state === "doing") page.setStatus(`${name}…`);
-      });
-      try { localStorage.setItem("account", acct); } catch { /* ignore */ }
+        if (state === "fail") page.setStatus(resume ? "登录已过期，请重新输入密码" : `${name}：${detail ?? ""}`, true);
+        else if (state === "doing") page.setStatus(resume ? "自动登录中…" : `${name}…`);
+      }, resume?.token);
+      try {
+        localStorage.setItem("account", acct);
+        // the token, never the password: a reload logs in with it again (see tryResume)
+        localStorage.setItem("session", JSON.stringify({ account: acct, token: entered.token, at: Date.now() }));
+      } catch { /* ignore */ }
       page.setStatus(`已进入游戏：${entered.name}，正在加载主城…`);
       const city = await loadMainCity(session, () => {});
       const r = city.role as Record<string, unknown>;
@@ -88,12 +93,13 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
       main.onTab(t => { heroes.show(t === 2); bag.show(t === 3); });
       page.hide(); // the login page gives way to the main city
     } catch {
-      // the failing step is already on the page
+      // the failing step is already on the page; a saved login the server refused is not tried again
+      if (resume) try { localStorage.removeItem("session"); } catch { /* ignore */ }
     } finally {
       page.setBusy(false);
     }
   };
-  page.onLogin(run);
+  page.onLogin(() => { void run(); });
   // 一键注册: make up an account and a password, register them, show them in the fields and log in
   page.onRegister(async () => {
     page.setBusy(true);
@@ -113,5 +119,12 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
     page.setBusy(false);
     await run();
   });
+  // a reload: log in again with the saved token (?fresh=1 skips it); the server's token lasts 24 hours by default
+  if (!q.get("fresh") && !q.get("acct")) {
+    try {
+      const saved = JSON.parse(localStorage.getItem("session") ?? "null") as { account: string; token: string; at: number } | null;
+      if (saved?.token && Date.now() - saved.at < 24 * 3600 * 1000) { page.account.string = saved.account; void run(saved); }
+    } catch { /* storage blocked or corrupt: show the login page */ }
+  }
   if (q.get("autologin") === "1") page.account.string && page.password.string && page.password.node.emit("editing-return");
 });
