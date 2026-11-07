@@ -2,7 +2,7 @@
 // A dark band over the field with the title, "失败，不要气馁，…", "当前战斗：剧情副本", a confirm button and the 10-second countdown that also confirms.
 // Left out for now: the title's Spine effect (104; the title is plain text), the "变强小助手" button and the improvement entries it names, the
 // "back to the mode" button and the damage statistics window.
-import { Color, HorizontalTextAlignment, Label, Node, Sprite, UITransform, VerticalTextAlignment } from "cc";
+import { Color, Graphics, HorizontalTextAlignment, Label, Node, Sprite, UITransform, VerticalTextAlignment } from "cc";
 import { atlasFrame, loadJson } from "./cdn";
 import { LNode, buildLayout } from "./ui";
 
@@ -17,6 +17,17 @@ export async function buildFailWindow(canvas: Node): Promise<FailWindow> {
   root.setPosition(-360, -640, 0);
   root.active = false;
   const container = built.byName.get("container")!; // anchored in the middle, 720 x 505
+
+  // black_panel is a plain dark panel in the layout (a solid colour, which the layout builder does not draw): the band behind the text
+  const band = new Node("band");
+  band.layer = container.layer;
+  band.addComponent(UITransform);
+  const bg = band.addComponent(Graphics);
+  bg.fillColor = new Color(0, 0, 0, 190);
+  bg.rect(-360, -252.5, 720, 505);
+  bg.fill();
+  container.addChild(band);
+  band.setSiblingIndex(0);
 
   const text = (str: string, x: number, y: number, size: number, color: Color, outline?: Color) => {
     const n = new Node("label");
