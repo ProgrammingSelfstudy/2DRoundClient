@@ -8,7 +8,7 @@ import { atlasFrame, loadJson, spriteFrame } from "./cdn";
 // id -> [icon picture, row type, order, name, level to open, open type], from tables/functions.json; open type 1 opens by level alone, 2 (an
 // activity) also needs the server to say so
 type FunctionTable = { [id: string]: [string, number, number, string, number, number] };
-export interface IconBar { root: Node; setLevel(lev: number): void; setPushed(ids: number[]): void; show(on: boolean): void; onIcon(f: (name: string) => void): void }
+export interface IconBar { root: Node; setLevel(lev: number): void; setPushed(ids: number[]): void; setOpen(id: number, open: boolean): void; show(on: boolean): void; onIcon(f: (name: string) => void): void }
 
 const TOP_H = 97;
 const SKIP = new Set(["111"]); // 游戏中心: opened by the platform's own channel, not shown in the capture
@@ -134,6 +134,7 @@ export async function buildIconBar(parent: Node): Promise<IconBar> {
     root,
     setLevel(l) { lev = l; layout(); },
     setPushed(ids) { pushed = new Set(ids.map(String)); layout(); },
+    setOpen(id, open) { if (open) pushed.add(String(id)); else pushed.delete(String(id)); layout(); },
     show(on) { root.active = on; },
     onIcon(f) { tapped = f; },
   };

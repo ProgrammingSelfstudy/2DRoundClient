@@ -22,18 +22,25 @@ export class Session {
   // the newest decoded frame of every server command, and when the last frame of any kind arrived
   readonly last = new Map<number, Msg>();
   lastFrameAt = 0;
+  private listeners = new Map<number, Array<(m: Msg) => void>>();
 
   constructor(sock: GameSocket) {
     this.sock = sock;
     sock.onFrame = (cmd, msg) => {
       this.lastFrameAt = Date.now();
       if (msg) this.last.set(cmd, msg);
+      if (msg) for (const f of this.listeners.get(cmd) ?? []) f(msg);
       const w = this.waiters.get(cmd);
       if (w) {
         this.waiters.delete(cmd);
         w(msg);
       }
     };
+  }
+
+  // call `f` for every decoded frame of `cmd` from now on (a server push the UI follows, unlike waitFor's single wait)
+  on(cmd: number, f: (m: Msg) => void) {
+    this.listeners.set(cmd, [...(this.listeners.get(cmd) ?? []), f]);
   }
 
   // connect and wait until the socket is open; the UI's own state listener keeps working
