@@ -28,6 +28,27 @@ export async function buildDramaPage(canvas: Node): Promise<DramaPage> {
   const root = built.root;
   root.setPosition(-W / 2, -H / 2 + 108 - 65, 0); // root_wnd's bottom sits above the bottom bar (the original: -bottom height - 65, anchored bottom-centre)
   root.active = false;
+  // behind the panel the original runs its hook battle on the chapter's map (BattleHookModel); here the map's two layers are laid the way the battle
+  // scene lays them (far layer 736 up, ground 40 up), with nothing fighting on them yet. Only the first chapter's map is in the release.
+  const MAP_ID = 10008; // the first chapter (data_drama_world_info), as boot.ts passes to the fight
+  const backdrop = new Node("hook_scene");
+  backdrop.layer = canvas.layer;
+  backdrop.addComponent(UITransform).setContentSize(W, H);
+  backdrop.getComponent(UITransform)!.setAnchorPoint(0, 0);
+  backdrop.setPosition(-W / 2, -H / 2, 0);
+  backdrop.active = false;
+  canvas.addChild(backdrop);
+  backdrop.setSiblingIndex(root.getSiblingIndex()); // under the panel, over the city scene
+  for (const [name, y] of [["m_bg", 736], ["map_bg", 40]] as const) {
+    const n = new Node(name);
+    n.layer = canvas.layer;
+    n.addComponent(UITransform).setAnchorPoint(0, 0);
+    n.setPosition(0, y, 0);
+    const sp = n.addComponent(Sprite);
+    sp.sizeMode = Sprite.SizeMode.RAW;
+    spriteFrame(`bg/battle/${MAP_ID}/${name}.webp`).then(f => { if (sp.isValid) sp.spriteFrame = f; }, e => console.warn(`stage map ${name}:`, (e as Error).message));
+    backdrop.addChild(n);
+  }
   const text = (n: string) => by.get(n)?.getComponent(Label);
   const label = (parent: Node, str: string, x: number, y: number, size: number, color: Color) => {
     const n = new Node("label");
@@ -140,7 +161,7 @@ export async function buildDramaPage(canvas: Node): Promise<DramaPage> {
 
   return {
     root,
-    show(on) { root.active = on; },
+    show(on) { root.active = on; backdrop.active = on; },
     onBoss(f) { handler = f; },
     onQuick(f) { quickHandler = f; },
     maxDunId() { return maxDun; },
