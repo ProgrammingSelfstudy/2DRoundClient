@@ -10,7 +10,9 @@ import type { Msg } from "./shared/proto/codec";
 // id -> [name, unit id, shown rewards [item, count], per-minute rewards [item, count], level limit, next stage], from tables/dungeons.json
 type StageTable = { [id: string]: [string, number, number[][], number[][], number, number] };
 type ItemTable = { [id: string]: [string, number, number, number] };
-export interface DramaPage { root: Node; setDrama(d: Msg | undefined, roleLev: number): void; show(on: boolean): void }
+// what the boss button asks for: "next" goes to the next chapter (status 3), "fight" challenges the boss, "level" is short of the level limit
+export type BossAction = "next" | "fight" | "level";
+export interface DramaPage { root: Node; setDrama(d: Msg | undefined, roleLev: number): void; show(on: boolean): void; onBoss(f: (a: BossAction) => void): void }
 
 const FIRST_STAGE = 10010; // what the original shows before anything has been passed (max_dun_id 0)
 
@@ -120,9 +122,14 @@ export async function buildDramaPage(canvas: Node): Promise<DramaPage> {
     strip.setPosition(0, 0, 0);
   };
 
+  let action: BossAction = "fight";
+  let handler = (_a: BossAction) => {};
+  boss.on(Node.EventType.TOUCH_END, () => handler(action));
+
   return {
     root,
     show(on) { root.active = on; },
+    onBoss(f) { handler = f; },
     setDrama(d, roleLev) {
       const maxId = Number(d?.max_dun_id ?? 0);
       fill(maxId === 0 ? FIRST_STAGE : Number(d?.dun_id ?? FIRST_STAGE));
@@ -133,10 +140,13 @@ export async function buildDramaPage(canvas: Node): Promise<DramaPage> {
       boss.active = (status === 2 && cool === 0) || status === 3;
       by.get("next_battle_time")!.active = status === 1 && cool !== 0;
       if (status === 3) {
+        action = "next";
         bossNotice.node.active = true; bossChallenge.active = false; bossNotice.string = "前往下一章";
       } else if (need > roleLev) {
+        action = "level";
         bossNotice.node.active = true; bossChallenge.active = false; bossNotice.string = `${need}级可挑战`;
       } else {
+        action = "fight";
         bossNotice.node.active = false; bossChallenge.active = true;
       }
     },

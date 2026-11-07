@@ -93,6 +93,16 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
       heroes.setHeroes((heroDemo ?? city.partners) as unknown as Parameters<typeof heroes.setHeroes>[0], Number(city.heroBag?.num ?? 0));
       const drama = await buildDramaPage(canvas);
       drama.setDrama(city.drama, Number((city.role as Record<string, unknown>).lev ?? 0));
+      // the boss button: the original opens the formation panel first (not built), then sends 13003; here it sends 13003 with the saved formation
+      drama.onBoss(async a => {
+        if (a === "level") return toast(canvas, "等级不足");
+        try {
+          const reply = a === "next" ? await session.request(13002, {}, 13002) : await session.request(13003, { is_auto: 0 }, 13003);
+          await session.quiet(300, 3000);
+          const battle = Array.from(session.last.keys()).filter(c => c >= 20000 && c < 20100).length;
+          toast(canvas, `${String(reply.msg ?? "")}${battle ? `（收到 ${battle} 种战斗推送，战斗画面未做）` : ""}`);
+        } catch (e) { toast(canvas, (e as Error).message); }
+      });
       const main = await buildMainPage(canvas); // built after the pages so the top bar and the tabs stay on top of them
       main.setCity(city);
       // tab 1 is the main city, 2 the heroes, 3 the backpack, 4 the stages; the other tabs have no page yet
