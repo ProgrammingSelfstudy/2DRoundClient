@@ -7,6 +7,7 @@ import { buildMainPage } from "./mainpage";
 import { buildBackpackPage } from "./backpackpage";
 import { buildHeroPage } from "./heropage";
 import { buildDramaPage } from "./dramapage";
+import { spineNode } from "./spine";
 import { buildCityScene } from "./citybg";
 import { toast } from "./toast";
 import { GameSocket } from "./shared/net";
@@ -110,6 +111,12 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
       session.on(10923, m => main.icons.setOpen(Number(m.id), Number(m.status) !== 0));
       main.icons.onIcon(name => toast(canvas, `${name}：暂未开放`));
       main.onTab(t => { heroes.show(t === 2); bag.show(t === 3); drama.show(t === 4); });
+      // dev convenience: ?battledemo=1 stands the first battle's two models (hero 10401 star 4 = H30009, enemy 101011 = H30012) on the screen
+      if (q.get("battledemo") === "1") {
+        for (const [model, x] of [["H30009", -170], ["H30012", 170]] as const) {
+          spineNode(`spine/hero/${model}/stand2`, "stand2", canvas).then(sk => sk.node.setPosition(x, -60, 0), e => console.warn(`battledemo ${model}: ${(e as Error).message}`));
+        }
+      }
       page.hide(); // the login page gives way to the main city
     } catch {
       // the failing step is already on the page; a saved login the server refused is not tried again
