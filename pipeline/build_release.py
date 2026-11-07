@@ -26,6 +26,7 @@ import zipfile
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from csb_tree import tree  # noqa: E402
+from skel_to_json import convert  # noqa: E402
 
 LAYOUTS = {"boot": ["login/user_panel.csb"], "mainui": ["mainui/mainui_view.csb"],
            "backpack": ["backpack/backpack_window.csb", "backpack/goods_item.csb"],
@@ -53,7 +54,18 @@ def group_of(path):
         return "icons-item"
     if path.startswith("resource/functionicon/"):
         return "icons-function"
+    m = SPINE_DIR.match(path)  # a Spine model: one group per model, named fx-E51130 / hero-H30036 as bundles.py does
+    if m:
+        return ("fx-" if m.group(1) == "E" else "hero-") + m.group(1) + m.group(2)
     return None
+
+
+SPINE_DIR = re.compile(r"^v9o8qm1Y40cbOAlh6LDp0kMDi5CzXlsO/([EH])(\d+)/")
+
+
+def spine_logical(path, group, ext):  # v9o8.../E51130/action.skel -> spine/fx/E51130/action.<ext>
+    kind = "fx" if group.startswith("fx-") else "hero"
+    return f"spine/{kind}/{group.split('-', 1)[1]}/{path.rsplit('/', 1)[-1].rsplit('.', 1)[0]}.{ext}"
 
 
 def logical_image(path, group):
@@ -78,6 +90,8 @@ def logical_image(path, group):
         return "icons/item/" + name
     if group == "icons-function":
         return "icons/function/" + name
+    if group.startswith(("fx-", "hero-")):
+        return spine_logical(path, group, "webp")
     raise SystemExit(f"no naming rule for group {group!r}; add one to logical_image() first")
 
 
@@ -125,6 +139,13 @@ def main(assets, version, groups):
             tex = p.rsplit("/", 1)[0] + "/" + pl["metadata"]["textureFileName"]
             page = audit[inv[tex]]
             put(logical_atlas(p), json.dumps(atlas_json(pl, logical_image(tex, g), [page["w"], page["h"]]), separators=(",", ":")).encode(), "json", g, p)
+            continue
+        if g and g.startswith(("fx-", "hero-")) and p.endswith((".skel", ".atlas")):
+            data = open(f"{pkg}/{h[0]}/{h}.{p.rsplit('.', 1)[1]}", "rb").read()
+            if p.endswith(".skel"):  # Spine 3.4 binary -> the JSON Creator's 3.8 runtime reads
+                put(spine_logical(p, g, "json"), json.dumps(convert(data), separators=(",", ":")).encode(), "json", g, p)
+            else:
+                put(spine_logical(p, g, "atlas"), data, "atlas", g, p)
             continue
         if h not in audit:
             continue

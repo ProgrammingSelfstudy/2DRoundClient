@@ -5,6 +5,7 @@ import { loadJson, spriteFrame } from "./cdn";
 import { LNode, buildLayout } from "./ui";
 import { W, H } from "./loginpage";
 import { IconBar, buildIconBar } from "./iconbar";
+import { spineNode } from "./spine";
 import type { City } from "./shared/city";
 
 const num = (v: unknown) => {
@@ -26,7 +27,18 @@ export async function buildMainPage(canvas: Node): Promise<MainPage> {
   const tabs = [1, 2, 3, 4, 5, 6, 7].map(i => by.get(`mainui_tab_${i}`)!);
   const icons = await buildIconBar(built.root);
   let handler = (_t: number) => {};
+  // the centre button's picture is a Spine effect (E51130) the original puts into its empty `icon` node: action1 idle, action2 selected
+  let tabNow = 4;
+  let centre: Awaited<ReturnType<typeof spineNode>> | null = null;
+  spineNode("spine/fx/E51130/action", "action1", by.get("mainui_tab_4")!.getChildByName("icon")!).then(s => {
+    centre = s;
+    s.node.setPosition(0, 5, 0); // the original puts it at (5, 10) of the 10x10 icon node, whose own anchor is its centre
+    s.node.setScale(1.3, 1.3, 1);
+    s.setAnimation(0, tabNow === 4 ? "action2" : "action1", true);
+  }, e => console.warn(`centre button: ${(e as Error).message}`));
   const select = (t: number) => {
+    tabNow = t;
+    centre?.setAnimation(0, t === 4 ? "action2" : "action1", true);
     icons.show(t === 4); // the function icons belong to the main city; the pages cover it
     tabs.forEach((n, i) => {
       const sel = n.getChildByName("selected");
