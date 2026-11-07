@@ -17,6 +17,8 @@ const CAMP: { [camp: number]: string } = { 1: "common_90067", 2: "common_90068",
 export interface HeroPage { root: Node; setHeroes(list: Hero[], capacity?: number): void; show(on: boolean): void }
 
 export async function buildHeroPage(canvas: Node): Promise<HeroPage> {
+  let everyone: Hero[] = [], cap: number | undefined, campFilter = 0;
+  let renderHeroes = () => {}; // set once the grid code below exists; the camp buttons are wired before that
   const [win, table] = await Promise.all([loadJson<LNode>("layouts/hero/hero_bag_window.json"), loadJson<PartnerTable>("tables/partners.json")]);
   const built = await buildLayout(win, canvas, {
     // the empty-state notice, the library button (the original hides it too), the divider and the overlay panel stay hidden
@@ -43,6 +45,14 @@ export async function buildHeroPage(canvas: Node): Promise<HeroPage> {
   [0, 1, 2, 3, 4, 5, 7].forEach((c, i) => { const b = camp.getChildByName(`camp_btn${c}`)!; b.setPosition(xs[i], b.position.y, 0); });
   const ring = camp.getChildByName("img_select")!;
   ring.setPosition(xs[0] - 0.5, camp.getChildByName("camp_btn0")!.position.y + 1, 0);
+  // tapping a camp moves the ring onto it and filters the grid (the original: _onClickBtnShowByIndex -> updateHeroList)
+  [0, 1, 2, 3, 4, 5, 7].forEach((c, i) => {
+    camp.getChildByName(`camp_btn${c}`)!.on(Node.EventType.TOUCH_END, () => {
+      campFilter = c;
+      ring.setPosition(xs[i] - 0.5, camp.getChildByName("camp_btn0")!.position.y + 1, 0);
+      renderHeroes();
+    });
+  });
 
   // the four tabs (英雄 图鉴 幽灵 信念): the first is shown; the others have no page yet
   const tabs = ["英雄", "图鉴", "幽灵", "信念"];
@@ -132,27 +142,34 @@ export async function buildHeroPage(canvas: Node): Promise<HeroPage> {
   };
 
   const count = built.byName.get("item_buy_panel")?.getChildByName("label")?.getComponent(Label);
+
+  // draw the heroes of the chosen camp (0: all), strongest first; the count under the grid is of the whole bag, as in the original
+  const render = () => {
+    content.removeAllChildren();
+    const heroes = everyone
+      .filter(h => campFilter === 0 || (table.base[String(h.bid)]?.[1] ?? 0) === campFilter)
+      .sort((a, b) => b.star - a.star || b.power - a.power || a.partner_id - b.partner_id);
+    const rows = Math.ceil(heroes.length / COLS);
+    const contentH = Math.max(vt.height, rows * CELL);
+    content.getComponent(UITransform)!.setContentSize(vt.width, contentH);
+    content.getComponent(UITransform)!.setAnchorPoint(0.5, 1);
+    // content hangs from the top of the viewport; scrolling moves it up by at most the overflow
+    const x0 = -((COLS - 1) * CELL) / 2;
+    heroes.forEach((h, i) => {
+      const c = makeCell(h);
+      c.setPosition(x0 + (i % COLS) * CELL, -CELL / 2 - Math.floor(i / COLS) * CELL, 0);
+      content.addChild(c);
+    });
+    minY = vt.height / 2;
+    maxY = minY + Math.max(0, contentH - vt.height);
+    content.setPosition(0, minY, 0);
+    if (count) count.string = cap ? `${everyone.length}/${cap}` : String(everyone.length);
+  };
+  renderHeroes = render;
+
   return {
     root,
-    setHeroes(list, capacity) {
-      content.removeAllChildren();
-      const heroes = list.slice().sort((a, b) => b.star - a.star || b.power - a.power || a.partner_id - b.partner_id);
-      const rows = Math.ceil(heroes.length / COLS);
-      const contentH = Math.max(vt.height, rows * CELL);
-      content.getComponent(UITransform)!.setContentSize(vt.width, contentH);
-      content.getComponent(UITransform)!.setAnchorPoint(0.5, 1);
-      // content hangs from the top of the viewport; scrolling moves it up by at most the overflow
-      const x0 = -((COLS - 1) * CELL) / 2;
-      heroes.forEach((h, i) => {
-        const c = makeCell(h);
-        c.setPosition(x0 + (i % COLS) * CELL, -CELL / 2 - Math.floor(i / COLS) * CELL, 0);
-        content.addChild(c);
-      });
-      minY = vt.height / 2;
-      maxY = minY + Math.max(0, contentH - vt.height);
-      content.setPosition(0, minY, 0);
-      if (count) count.string = capacity ? `${heroes.length}/${capacity}` : String(heroes.length);
-    },
+    setHeroes(list, capacity) { everyone = list; cap = capacity; render(); },
     show(on) { root.active = on; },
   };
 }
