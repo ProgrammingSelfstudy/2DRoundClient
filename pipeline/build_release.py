@@ -30,7 +30,7 @@ from skel_to_json import convert  # noqa: E402
 
 LAYOUTS = {"boot": ["login/user_panel.csb"], "mainui": ["mainui/mainui_view.csb"],
            "backpack": ["backpack/backpack_window.csb", "backpack/goods_item.csb"],
-           "hero": ["hero/hero_bag_window.csb", "hero/hero_main_info_window.csb"], "battle": ["battle/battle_mvp_view.csb"], "battledrama": ["battle/battle_button_list.csb", "battledrama/battle_drama_quick_battle_windows.csb", "battledrama/battle_drama_hook_reward_windows.csb"]}  # group -> csb paths (under the recovered csb directory) shipped as layouts
+           "hero": ["hero/hero_bag_window.csb", "hero/hero_main_info_window.csb"], "form": ["hero/form_go_fight_panel.csb"], "battle": ["battle/battle_mvp_view.csb"], "battledrama": ["battle/battle_button_list.csb", "battledrama/battle_drama_quick_battle_windows.csb", "battledrama/battle_drama_hook_reward_windows.csb"]}  # group -> csb paths (under the recovered csb directory) shipped as layouts
 
 
 def group_of(path):
@@ -48,6 +48,10 @@ def group_of(path):
         return "herobag"
     if path.startswith("resource/hero/"):
         return "hero"
+    if path.startswith("resource/form/"):  # the formation window: formation icons, the slot frames
+        return "form"
+    if path == "resource/bigbg/bigbg_100.png":  # the formation window's backdrop
+        return "bigbg-form"
     if path.startswith("resource/headicon/"):
         return "icons-head"
     if path.startswith("resource/item/"):
@@ -100,6 +104,10 @@ def logical_image(path, group):
         return "ui/herobag/" + name
     if group == "hero":
         return "ui/hero/" + name
+    if group == "form":
+        return "ui/form/" + name
+    if group == "bigbg-form":
+        return "bg/" + name
     if group == "bigbg-bag":
         return "bg/" + name
     if group == "bigbg-hero":

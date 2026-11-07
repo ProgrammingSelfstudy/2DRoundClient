@@ -7,6 +7,8 @@ import { buildMainPage } from "./mainpage";
 import { buildBackpackPage } from "./backpackpage";
 import { buildHeroPage } from "./heropage";
 import { buildHeroDetail } from "./herodetail";
+import { buildFormPanel, type Formation } from "./formpanel";
+import type { Hero } from "./herocell";
 import { buildDramaPage } from "./dramapage";
 import { buildQuickWindow } from "./quickwindow";
 import { buildHookReward } from "./hookreward";
@@ -109,9 +111,8 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
       const battle = await buildBattleScene(canvas);
       const feed = new Feed(session, [20002, 20004, 13016]);
       battle.onTap(() => battle.show(false)); // no controls yet: a tap goes back to the stage page
-      // the boss button: the original opens the formation panel first (not built), then sends 13003; here it sends 13003 with the saved formation
-      drama.onBoss(async a => {
-        if (a === "level") return toast(canvas, "等级不足");
+      // the boss button opens the formation window (11211, kind 0 is the campaign's); its fight button saves the formation (11212) and sends 13003
+      const go = async (a: "fight" | "next") => {
         try {
           session.last.delete(20027); // only a fight this click started counts
           session.last.delete(13001);
@@ -130,6 +131,25 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
           }
           toast(canvas, String(reply.msg ?? ""));
         } catch (e) { toast(canvas, (e as Error).message); }
+      };
+      const form = await buildFormPanel(canvas, text => toast(canvas, text));
+      const heroList = () => city.partners as unknown as Hero[];
+      const save = async (f: Formation): Promise<boolean> => {
+        const pos_info = f.slots.map((h, i) => (h ? { pos: i + 1, id: h.partner_id } : null)).filter(Boolean);
+        const reply = await session.request(11212, { type: 0, formation_type: f.formation_type, hallows_id: 0, pos_info }, 11212);
+        if (Number(reply.code) !== 1) toast(canvas, String(reply.msg ?? "保存失败"));
+        return Number(reply.code) === 1;
+      };
+      form.onSave(async f => { try { return await save(f); } catch (e) { toast(canvas, (e as Error).message); return false; } });
+      form.onFight(async f => {
+        try { if (!(await save(f))) return; } catch (e) { return toast(canvas, (e as Error).message); }
+        form.close();
+        await go("fight");
+      });
+      drama.onBoss(async a => {
+        if (a === "level") return toast(canvas, "等级不足");
+        if (a === "next") return go("next");
+        try { form.open(await session.request(11211, { type: 0 }, 11211), heroList()); } catch (e) { toast(canvas, (e as Error).message); }
       });
       const main = await buildMainPage(canvas); // built after the pages so the top bar and the tabs stay on top of them
       // the quick battle window sits over everything, the way the original's dialogue does
@@ -156,7 +176,7 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
       // 10923: the server tells one activity icon opening or closing while the player is in the city
       session.on(10923, m => main.icons.setOpen(Number(m.id), Number(m.status) !== 0));
       main.icons.onIcon(name => toast(canvas, `${name}：暂未开放`));
-      main.onTab(t => { detail.close(); heroes.show(t === 2); bag.show(t === 3); drama.show(t === 4); });
+      main.onTab(t => { detail.close(); form.close(); heroes.show(t === 2); bag.show(t === 3); drama.show(t === 4); });
       // dev convenience: ?battledemo=1 stands the first battle's two models (hero 10401 star 4 = H30009, enemy 101011 = H30012) on the screen
       if (q.get("battledemo") === "1") {
         for (const [model, x] of [["H30009", -170], ["H30012", 170]] as const) {
