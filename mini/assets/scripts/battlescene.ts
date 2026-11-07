@@ -70,6 +70,12 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
     root.addChild(n);
     return n;
   };
+  // the ground picture is transparent in its lowest 114 rows (the original's battle UI covers them); a floor in its colour keeps the city scene from showing there
+  const floorNode = layer("floor", 0, 0);
+  const floor = floorNode.addComponent(Graphics);
+  floor.fillColor = new Color(118, 124, 58, 255);
+  floor.rect(0, 0, W, 170);
+  floor.fill();
   const far = layer("far", 0, FAR_Y), ground = layer("ground", 0, GROUND_Y), roles = layer("roles", 0, ROLE_LAYER_Y);
   const top = layer("top", 0, 0); // the result banner, above the fighters
   const roundNode = layer("round", 0, 0); // the round counter, kept apart from the banner so a new fight can clear one without the other

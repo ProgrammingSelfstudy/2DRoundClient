@@ -13,6 +13,7 @@ import { buildDramaPage } from "./dramapage";
 import { buildQuickWindow } from "./quickwindow";
 import { buildHookReward } from "./hookreward";
 import { buildMvpWindow } from "./battlemvp";
+import { buildFailWindow } from "./battlefail";
 import { spineNode } from "./spine";
 import { buildBattleScene } from "./battlescene";
 import { Feed, runFight } from "./battleflow";
@@ -131,11 +132,11 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
           if (a === "fight" && opening) {
             const result = await runFight(session, feed, battle, opening, 10008); // 10008: the first chapter's map (data_drama_world_info)
             const win = Number(result.result) === 1;
-            if (!win) battle.banner("战斗失败", false);
             await session.quiet(300, 2000);
             const progress = session.last.get(13001);
             if (progress) drama.setDrama(progress, Number((city.role as Record<string, unknown>).lev ?? 0)); // the new stage after a win
-            if (win) { await mvp.open(result); battle.show(false); } // the win window over the battle, then back to the stage page
+            if (win) await mvp.open(result); else await fail.open(); // the win or the defeat window over the battle, then back to the stage page
+            battle.show(false);
             return;
           }
           toast(canvas, String(reply.msg ?? ""));
@@ -168,6 +169,8 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
       const quick = await buildQuickWindow(canvas);
       session.on(13006, m => quick.setQuick(m)); // after a quick battle the server pushes the new count
       const mvp = await buildMvpWindow(canvas); // 13016: the win window of a campaign fight
+      const fail = await buildFailWindow(canvas); // 13016 with result 2: the defeat window
+      if (q.get("faildemo") === "1") void fail.open(); // dev convenience: ?faildemo=1 opens the defeat window
       const reward = await buildHookReward(canvas); // 13007: what a quick battle or a hook claim paid
       session.on(13007, m => { quick.close(); reward.open(m); });
       // dev convenience: ?rewarddemo=1 opens the reward window with a made-up quick battle that gains a level, to look at the bar and the item grid

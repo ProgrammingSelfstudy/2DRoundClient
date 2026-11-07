@@ -1,7 +1,7 @@
 // The main-line stage page: the original's `battle/battle_button_list` panel (stage name, the hook rewards, the boss button), filled from
 // the server's 13000 (current stage and its state) and the stage table. The city scene stays behind it as the sea map; the stage map, the
 // boss picture, fighting and the quick-battle window come later.
-import { Color, HorizontalTextAlignment, Label, Mask, Node, Sprite, UITransform, VerticalTextAlignment } from "cc";
+import { Color, Graphics, HorizontalTextAlignment, Label, Mask, Node, Sprite, UITransform, VerticalTextAlignment } from "cc";
 import { loadJson, spriteFrame } from "./cdn";
 import { LNode, buildLayout } from "./ui";
 import { W, H } from "./loginpage";
@@ -39,6 +39,16 @@ export async function buildDramaPage(canvas: Node): Promise<DramaPage> {
   backdrop.active = false;
   canvas.addChild(backdrop);
   backdrop.setSiblingIndex(root.getSiblingIndex()); // under the panel, over the city scene
+  // the ground picture is transparent in its lowest 114 rows (the original's battle UI covers them), so the city scene showed through as a blue band
+  // above the bottom bar: a floor in the ground's colour goes under it
+  const floor = new Node("floor");
+  floor.layer = canvas.layer;
+  floor.addComponent(UITransform).setAnchorPoint(0, 0);
+  const fg = floor.addComponent(Graphics);
+  fg.fillColor = new Color(118, 124, 58, 255);
+  fg.rect(0, 0, W, 170);
+  fg.fill();
+  backdrop.addChild(floor);
   for (const [name, y] of [["m_bg", 736], ["map_bg", 40]] as const) {
     const n = new Node(name);
     n.layer = canvas.layer;
