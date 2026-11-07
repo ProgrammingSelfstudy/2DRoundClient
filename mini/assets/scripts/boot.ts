@@ -9,6 +9,7 @@ import { buildHeroPage } from "./heropage";
 import { buildDramaPage } from "./dramapage";
 import { spineNode } from "./spine";
 import { buildBattleScene } from "./battlescene";
+import { Feed, runFight } from "./battleflow";
 import { buildCityScene } from "./citybg";
 import { toast } from "./toast";
 import { GameSocket } from "./shared/net";
@@ -96,17 +97,27 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
       const drama = await buildDramaPage(canvas);
       drama.setDrama(city.drama, Number((city.role as Record<string, unknown>).lev ?? 0));
       const battle = await buildBattleScene(canvas);
+      const feed = new Feed(session, [20002, 20004, 13016]);
       battle.onTap(() => battle.show(false)); // no controls yet: a tap goes back to the stage page
       // the boss button: the original opens the formation panel first (not built), then sends 13003; here it sends 13003 with the saved formation
       drama.onBoss(async a => {
         if (a === "level") return toast(canvas, "等级不足");
         try {
+          session.last.delete(20027); // only a fight this click started counts
+          session.last.delete(13001);
           const reply = a === "next" ? await session.request(13002, {}, 13002) : await session.request(13003, { is_auto: 0 }, 13003);
           await session.quiet(300, 3000);
-          const pushes = Array.from(session.last.keys()).filter(c => c >= 20000 && c < 20100).length;
           const opening = session.last.get(20027);
-          if (opening && a === "fight") { await battle.start(opening, 10008); battle.show(true); } // 10008: the first chapter's map (data_drama_world_info)
-          toast(canvas, `${String(reply.msg ?? "")}${pushes ? `（收到 ${pushes} 种战斗推送，只做了开场画面，点一下返回）` : ""}`);
+          if (a === "fight" && opening) {
+            const result = await runFight(session, feed, battle, opening, 10008); // 10008: the first chapter's map (data_drama_world_info)
+            const win = Number(result.result) === 1;
+            battle.banner(win ? "战斗胜利" : "战斗失败", win);
+            await session.quiet(300, 2000);
+            const progress = session.last.get(13001);
+            if (progress) drama.setDrama(progress, Number((city.role as Record<string, unknown>).lev ?? 0)); // the new stage after a win
+            return;
+          }
+          toast(canvas, String(reply.msg ?? ""));
         } catch (e) { toast(canvas, (e as Error).message); }
       });
       const main = await buildMainPage(canvas); // built after the pages so the top bar and the tabs stay on top of them
