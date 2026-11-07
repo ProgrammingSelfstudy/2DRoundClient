@@ -30,7 +30,7 @@ from skel_to_json import convert  # noqa: E402
 
 LAYOUTS = {"boot": ["login/user_panel.csb"], "mainui": ["mainui/mainui_view.csb"],
            "backpack": ["backpack/backpack_window.csb", "backpack/goods_item.csb"],
-           "hero": ["hero/hero_bag_window.csb"], "battledrama": ["battle/battle_button_list.csb", "battledrama/battle_drama_quick_battle_windows.csb", "battledrama/battle_drama_hook_reward_windows.csb"]}  # group -> csb paths (under the recovered csb directory) shipped as layouts
+           "hero": ["hero/hero_bag_window.csb"], "battle": ["battle/battle_mvp_view.csb"], "battledrama": ["battle/battle_button_list.csb", "battledrama/battle_drama_quick_battle_windows.csb", "battledrama/battle_drama_hook_reward_windows.csb"]}  # group -> csb paths (under the recovered csb directory) shipped as layouts
 
 
 def group_of(path):
@@ -58,6 +58,8 @@ def group_of(path):
         return "bigbg-bag"
     if path.startswith("resource/bigbg/hero/"):  # the hero bag's window pictures, set by hero_bag_window.lua over the layout's placeholders
         return "bigbg-hero"
+    if path.startswith("resource/battlemvp/"):  # the win window's pictures
+        return "battlemvp"
     if path.startswith("resource/levupgrade/"):  # the level-up window's pieces, which the hook reward window shares
         return "levupgrade"
     if path.startswith("resource/battledrama/"):
@@ -104,6 +106,8 @@ def logical_image(path, group):
         return "bg/hero/" + name
     if group == "levupgrade":
         return "ui/levupgrade/" + name
+    if group == "battlemvp":
+        return "ui/battlemvp/" + name
     if group == "battledrama":
         return "ui/battledrama/" + name
     if group == "battle":

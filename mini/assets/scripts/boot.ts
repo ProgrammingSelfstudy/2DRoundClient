@@ -9,6 +9,7 @@ import { buildHeroPage } from "./heropage";
 import { buildDramaPage } from "./dramapage";
 import { buildQuickWindow } from "./quickwindow";
 import { buildHookReward } from "./hookreward";
+import { buildMvpWindow } from "./battlemvp";
 import { spineNode } from "./spine";
 import { buildBattleScene } from "./battlescene";
 import { Feed, runFight } from "./battleflow";
@@ -113,10 +114,11 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
           if (a === "fight" && opening) {
             const result = await runFight(session, feed, battle, opening, 10008); // 10008: the first chapter's map (data_drama_world_info)
             const win = Number(result.result) === 1;
-            battle.banner(win ? "战斗胜利" : "战斗失败", win);
+            if (!win) battle.banner("战斗失败", false);
             await session.quiet(300, 2000);
             const progress = session.last.get(13001);
             if (progress) drama.setDrama(progress, Number((city.role as Record<string, unknown>).lev ?? 0)); // the new stage after a win
+            if (win) { await mvp.open(result); battle.show(false); } // the win window over the battle, then back to the stage page
             return;
           }
           toast(canvas, String(reply.msg ?? ""));
@@ -126,9 +128,12 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
       // the quick battle window sits over everything, the way the original's dialogue does
       const quick = await buildQuickWindow(canvas);
       session.on(13006, m => quick.setQuick(m)); // after a quick battle the server pushes the new count
+      const mvp = await buildMvpWindow(canvas); // 13016: the win window of a campaign fight
       const reward = await buildHookReward(canvas); // 13007: what a quick battle or a hook claim paid
       session.on(13007, m => { quick.close(); reward.open(m); });
       // dev convenience: ?rewarddemo=1 opens the reward window with a made-up quick battle that gains a level, to look at the bar and the item grid
+      // dev convenience: ?mvpdemo=1 opens the win window with a made-up result (a level gained, six rewards)
+      if (q.get("mvpdemo") === "1") void mvp.open({ result: 1, partner_hurt: 12345, partner_total_hurt: 20000, lev: 5, exp: 400, new_lev: 6, new_exp: 150, item_rewards: [1, 3, 10001, 10002, 10003, 20001].map((bid, i) => ({ bid, num: 100 * (i + 1) })) } as never);
       if (q.get("rewarddemo") === "1") reward.open({ type: 2, time: 7200, old_lev: 5, new_lev: 6, old_exp: 400, new_exp: 150, vip_buff: 0, honor_buff: 0, items: [1, 3, 10001, 10002, 10003, 20001, 30001, 40001, 50001].map((bid, i) => ({ bid, num: 100 * (i + 1) })) } as never);
       drama.onQuick(async () => {
         try { quick.open(drama.maxDunId() || 10010, await session.request(13006, {}, 13006)); } catch (e) { toast(canvas, (e as Error).message); }
@@ -152,7 +157,8 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
         }
       }
       page.hide(); // the login page gives way to the main city
-    } catch {
+    } catch (e) {
+      console.warn(`login flow: ${(e as Error).stack ?? e}`);
       // the failing step is already on the page; a saved login the server refused is not tried again
       if (resume) try { localStorage.removeItem("session"); } catch { /* ignore */ }
     } finally {
