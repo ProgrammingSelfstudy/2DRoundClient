@@ -1,8 +1,9 @@
 // The main city's function icons, placed as MainUiView.setIconPosition does (design coordinates, origin bottom-left, 720x1280): a row of up to
 // six under the top bar (type 1), a column down the right edge (type 2) and a row along the bottom right (type 3). Only the icons the original
 // opens by player level are here; the activity icons the server pushes (first charge, seven-day login, ...) are not built yet.
-import { Color, Label, Node, Sprite, UITransform } from "cc";
-import { loadJson, spriteFrame } from "./cdn";
+// Types 3 and 4 (the bottom row and the column above the handle) fold away behind the round "+" handle, as MainUiView.shrinkBtnContainer does.
+import { Color, Label, Node, Sprite, UIOpacity, UITransform, tween } from "cc";
+import { atlasFrame, loadJson, spriteFrame } from "./cdn";
 
 // id -> [icon picture, row type, order, name, level to open], from tables/functions.json
 type FunctionTable = { [id: string]: [string, number, number, string, number] };
@@ -21,6 +22,44 @@ export async function buildIconBar(parent: Node): Promise<IconBar> {
   parent.addChild(root);
   let tapped = (_n: string) => {};
   let lev = 0;
+
+  // the two folding groups and the handle; the groups hold icons at absolute positions and slide as a whole
+  const group = (name: string) => {
+    const g = new Node(name);
+    g.layer = root.layer;
+    g.addComponent(UITransform).setContentSize(0, 0);
+    g.addComponent(UIOpacity);
+    root.addChild(g);
+    return g;
+  };
+  const row = group("row"), column = group("column");
+  const handle = new Node("handle_btn");
+  handle.layer = root.layer;
+  handle.addComponent(UITransform).setContentSize(79, 79);
+  handle.setPosition(675, 168, 0); // display.getRight() - 45, bottom bar height + 60
+  const handleSprite = handle.addComponent(Sprite);
+  handleSprite.sizeMode = Sprite.SizeMode.CUSTOM;
+  atlasFrame("ui/mainui/mainui.json", "mainui_1016.png").then(sf => { handleSprite.spriteFrame = sf; }, () => {});
+  root.addChild(handle);
+  let folded = false, folding = false;
+  const FOLD = 100; // the original moves the row 100 right and the column 100 down while fading, in 0.1 s
+  handle.on(Node.EventType.TOUCH_END, () => {
+    if (folding) return;
+    folding = true;
+    folded = !folded;
+    row.active = column.active = true;
+    const slide = (g: Node, dx: number, dy: number, last: boolean) => {
+      const o = g.getComponent(UIOpacity)!, p = g.position;
+      const k = folded ? 1 : -1;
+      tween(g).to(0.1, { position: p.clone().add3f(dx * k, dy * k, 0) }).call(() => {
+        if (folded) g.active = false;
+        if (last) folding = false;
+      }).start();
+      tween(o).to(0.1, { opacity: folded ? 0 : 255 }).start();
+    };
+    slide(row, FOLD, 0, true);
+    slide(column, 0, -FOLD, false);
+  });
 
   const cell = (name: string, res: string, size: { w: number; h: number }, label: boolean) => {
     const n = new Node(name);
@@ -54,7 +93,9 @@ export async function buildIconBar(parent: Node): Promise<IconBar> {
   };
 
   const layout = () => {
-    root.removeAllChildren();
+    row.removeAllChildren();
+    column.removeAllChildren();
+    for (const n of root.children.slice()) if (n !== row && n !== column && n !== handle) root.removeChild(n);
     const open = Object.entries(table)
       .filter(([id, r]) => !SKIP.has(id) && r[4] <= lev)
       .map(([, r]) => ({ res: r[0], type: r[1], index: r[2], name: r[3] }))
@@ -72,12 +113,19 @@ export async function buildIconBar(parent: Node): Promise<IconBar> {
       c.setPosition(709 - LEFT.w / 2, 1280 - TOP_H - 28 - 90 + 90 - LEFT.h / 2 - i * (LEFT.h + 8), 0);
       root.addChild(c);
     });
-    // type 3: along y = 176, from x = 587 going left (the "+" handle sits to the right of the row)
+    // type 3: a container (79 wide, hanging from x = 618) at the handle's height; the first icon is at its right end, the rest go left, 7 to a line
     of(3).forEach((o, i) => {
       const c = cell(o.name, o.res, RIGHT, false);
-      c.setPosition(587 - (i % 7) * (RIGHT.w + 20), 176, 0);
-      root.addChild(c);
+      c.setPosition(618 - 79 + 79 - RIGHT.w / 2 - (i % 7) * (RIGHT.w + 20), 168 - Math.floor(i / 7) * 79, 0);
+      row.addChild(c);
     });
+    // type 4: the column above the handle, from y = 223 going up
+    of(4).forEach((o, i) => {
+      const c = cell(o.name, o.res, RIGHT, false);
+      c.setPosition(675, 223 + RIGHT.h / 2 + i * (RIGHT.h + 20), 0);
+      column.addChild(c);
+    });
+    handle.active = of(3).length + of(4).length > 0;
   };
 
   return {
