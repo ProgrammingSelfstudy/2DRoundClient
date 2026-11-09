@@ -30,7 +30,7 @@ from skel_to_json import convert  # noqa: E402
 
 LAYOUTS = {"boot": ["login/user_panel.csb"], "mainui": ["mainui/mainui_view.csb"],
            "backpack": ["backpack/backpack_window.csb", "backpack/goods_item.csb"],
-           "hero": ["hero/hero_bag_window.csb", "hero/hero_main_info_window.csb"], "form": ["hero/form_go_fight_panel.csb"], "battle": ["battle/battle_mvp_view.csb", "battle/battle_fail_view.csb"], "battledrama": ["battle/battle_button_list.csb", "battledrama/battle_drama_quick_battle_windows.csb", "battledrama/battle_drama_hook_reward_windows.csb"]}  # group -> csb paths (under the recovered csb directory) shipped as layouts
+           "hero": ["hero/hero_bag_window.csb", "hero/hero_main_info_window.csb"], "herolibrary": ["hero/hero_library_main_window.csb", "hero/hero_library_main_item.csb", "hero/hero_library_info_window.csb"], "form": ["hero/form_go_fight_panel.csb"], "battle": ["battle/battle_mvp_view.csb", "battle/battle_fail_view.csb"], "battledrama": ["battle/battle_button_list.csb", "battledrama/battle_drama_quick_battle_windows.csb", "battledrama/battle_drama_hook_reward_windows.csb"]}  # group -> csb paths (under the recovered csb directory) shipped as layouts
 
 
 def group_of(path):
@@ -48,6 +48,12 @@ def group_of(path):
         return "herobag"
     if path.startswith("resource/hero/"):
         return "hero"
+    if path.startswith("resource/skillicon/"):  # the skill pictures of the hero info window's skill page
+        return "skillicon"
+    if path.startswith("resource/herolibrary/"):  # the hero library (图鉴): its atlas and window pieces
+        return "herolibrary"
+    if path.startswith("resource/bigbg/partnercard/"):  # a hero's card in the library list: partnercard_<bid>
+        return "partnercard"
     if path.startswith("resource/form/"):  # the formation window: formation icons, the slot frames
         return "form"
     if path == "resource/bigbg/bigbg_100.png":  # the formation window's backdrop
@@ -73,14 +79,16 @@ def group_of(path):
     m = BATTLE_BG.match(path)  # a battle background: one group per map id, battlebg-10008
     if m:
         return "battlebg-" + m.group(1)
-    m = SPINE_DIR.match(path)  # a Spine model: one group per model, named fx-E51130 / hero-H30036 as bundles.py does
+    m = SPINE_DIR.match(path)  # a Spine model: one group per model, named fx-E51130 / hero-H30036 / hero-h_aisilong as bundles.py does
     if m:
-        return ("fx-" if m.group(1) == "E" else "hero-") + m.group(1) + m.group(2)
+        return ("fx-" if m.group(1).startswith("E") else "hero-") + m.group(1)
     return None
 
 
 BATTLE_BG = re.compile(r"^resource/bigbg/battle_bg/(\d+)/")
-SPINE_DIR = re.compile(r"^v9o8qm1Y40cbOAlh6LDp0kMDi5CzXlsO/([EH])(\d+)/")
+SPINE_DIR = re.compile(r"^v9o8qm1Y40cbOAlh6LDp0kMDi5CzXlsO/(E\d+|[Hh]\d+|[Hh]_[A-Za-z0-9]+)/")
+SPINE_BASE = "v9o8qm1Y40cbOAlh6LDp0kMDi5CzXlsO"
+SPINE_ACTIONS = [f"action{i}" for i in range(1, 10)] + ["stand2", "hurt", "run", "show", "show2", "show3"]  # the animation files of a model
 
 
 def spine_logical(path, group, ext):  # v9o8.../E51130/action.skel -> spine/fx/E51130/action.<ext>
@@ -104,6 +112,12 @@ def logical_image(path, group):
         return "ui/herobag/" + name
     if group == "hero":
         return "ui/hero/" + name
+    if group == "skillicon":
+        return "icons/skill/" + name
+    if group == "herolibrary":
+        return "ui/herolibrary/" + name
+    if group == "partnercard":
+        return "bg/partnercard/" + name
     if group == "form":
         return "ui/form/" + name
     if group == "bigbg-form":
@@ -163,12 +177,32 @@ def main(assets, version, groups):
                 p = f"resource/bigbg/battle_bg/{g.split('-', 1)[1]}/{name}"
                 if resource_hash(p) in audit:
                     found[resource_hash(p)] = p
+    pkg = f"{assets}/source/restored-source/outputs/apk-extracted/assets/HASH"
+    for g in groups:  # a Spine model with no entry in resmap (the h_xxx heroes, a second atlas page): find its files by hashing the names
+        if g.startswith(("fx-", "hero-")):
+            sys.path.insert(0, f"{assets}/source/restored-source/outputs/recovery-tools")
+            from resource_hash import resource_hash
+            model = g.split("-", 1)[1]
+            for name in SPINE_ACTIONS:
+                for ext in ("skel", "atlas"):
+                    path = f"{SPINE_BASE}/{model}/{name}.{ext}"
+                    h = resource_hash(path)
+                    if h not in found and os.path.exists(f"{pkg}/{h[0]}/{h}.{ext}"):
+                        found[h] = path
+                atlas = next((h for h, path in found.items() if path == f"{SPINE_BASE}/{model}/{name}.atlas"), None)
+                for line in (open(f"{pkg}/{atlas[0]}/{atlas}.atlas", encoding="utf-8", errors="replace").read().splitlines() if atlas else []):
+                    if line.strip().lower().endswith(".png"):
+                        path = f"{SPINE_BASE}/{model}/{line.strip()}"
+                        h = resource_hash(path)
+                        if h not in found and h in audit:
+                            found[h] = path
     inv = {p: h for h, p in found.items()}
     z = zipfile.ZipFile(f"{assets}/source/decrypted-images.zip")
     pkg = f"{assets}/source/restored-source/outputs/apk-extracted/assets/HASH"
     out = f"{assets}/build/{version}"
     os.makedirs(f"{out}/f", exist_ok=True)
     files, tmp = {}, tempfile.mkdtemp()
+    unconverted = []
 
     def put(logical, data, ext, group, src, **extra):
         digest = hashlib.sha256(data).hexdigest()[:20]
@@ -189,7 +223,10 @@ def main(assets, version, groups):
         if g and g.startswith(("fx-", "hero-")) and p.endswith((".skel", ".atlas")):
             data = open(f"{pkg}/{h[0]}/{h}.{p.rsplit('.', 1)[1]}", "rb").read()
             if p.endswith(".skel"):  # Spine 3.4 binary -> the JSON Creator's 3.8 runtime reads
-                put(spine_logical(p, g, "json"), json.dumps(convert(data), separators=(",", ":")).encode(), "json", g, p)
+                try:
+                    put(spine_logical(p, g, "json"), json.dumps(convert(data), separators=(",", ":")).encode(), "json", g, p)
+                except Exception as e:  # a few of the original's files cannot be read (docs/UI_ACCEPTANCE.md, risks): leave them out and say so at the end
+                    unconverted.append(f"{p}: {type(e).__name__} {e}")
             else:
                 put(spine_logical(p, g, "atlas"), data, "atlas", g, p)
             continue
@@ -252,6 +289,11 @@ def main(assets, version, groups):
         lua = f"{assets}/source/restored-source/outputs/readable-source/lua/ePoCrKQkWA3vpiOwu2oNfOh02MOeNheW"
         put("tables/partners.json", json.dumps(partners(lua), ensure_ascii=False, separators=(",", ":")).encode(), "json", "icons-head", "partner_data.lua")
 
+    if "skillicon" in groups:  # each listed hero star's skills and what the skill page says of them
+        from hero_skill_info_table import table as skill_info
+        lua = f"{assets}/source/restored-source/outputs/readable-source/lua/ePoCrKQkWA3vpiOwu2oNfOh02MOeNheW"
+        put("tables/hero_skill_info.json", json.dumps(skill_info(lua), ensure_ascii=False, separators=(",", ":")).encode(), "json", "skillicon", "skill_data*.lua")
+
     if "icons-function" in groups:  # the level-opened function icons: id -> icon picture, row, order, name, level
         from functions_table import table as functions
         lua = f"{assets}/source/restored-source/outputs/readable-source/lua/ePoCrKQkWA3vpiOwu2oNfOh02MOeNheW"
@@ -270,11 +312,17 @@ def main(assets, version, groups):
         put("tables/battle_models.json", json.dumps(battle_models(lua), ensure_ascii=False, separators=(",", ":")).encode(), "json", "battle", "partner_data.lua, unit_data*.lua")
         from skill_actions_table import table as skill_actions  # the attack animation of each skill (anime_user_atk of its effect group)
         put("tables/skill_actions.json", json.dumps(skill_actions(lua), separators=(",", ":")).encode(), "json", "battle", "skill_data*.lua")
+        from skill_fx_table import table as skill_fx  # how a skill is played: effect rows, shake table, each model's run to the target and back
+        put("tables/skill_fx.json", json.dumps(skill_fx(lua), separators=(",", ":")).encode(), "json", "battle", "skill_data*.lua, battle_act_data.lua")
+        from hero_skills_table import table as hero_skills  # the skills of each hero: only the demo page (?skilldemo=) reads it
+        put("tables/hero_skills.json", json.dumps(hero_skills(lua), ensure_ascii=False, separators=(",", ":")).encode(), "json", "battle", "partner_data.lua, skill_data*.lua")
         from buffs_table import table as buffs  # the battle statuses: name and benefit / harm
         put("tables/buffs.json", json.dumps(buffs(lua), ensure_ascii=False, separators=(",", ":")).encode(), "json", "battle", "skill_data.lua")
 
     manifest = {"version": version, "platform": "web", "files": files}
     json.dump(manifest, open(f"{out}/manifest.web.json", "w"), ensure_ascii=False, indent=1)
+    for u in unconverted:
+        print(f"NOT CONVERTED {u}")
     print(f"{version}: {len(files)} files, {sum(f['bytes'] for f in files.values()) / 1e6:.2f} MB -> {out}")
     for k, f in files.items():
         print(f"  {k:34s} {f['ext']:5s} {f['bytes']:>8} B  {f['hash']}")

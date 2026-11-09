@@ -7,8 +7,8 @@
 2DRoundClient/     客户端代码（本仓库）
   mini/            小游戏和网页（Cocos Creator + TypeScript）
   web/             TS 网页开发页（连服务器、协议对拍）
-  app/             App（Axmol + Lua）
-  shared/core/     C++ 核心
+  app/             App（Axmol + Lua）。暂缓，目前不存在
+  shared/core/     C++ 核心。规划中，目前不存在；网页端不需要（战斗表现的计算放在 mini/assets/scripts/skillplan.ts，纯 TS），原生包才可能用到
   shared/protogen/ 协议代码生成器
   pipeline/        资源处理脚本；dashboard/ 是进度页和预览页的源文件
   docs/            本文档；docs/reports/ 是各步骤的汇总报告

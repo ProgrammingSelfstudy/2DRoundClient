@@ -5,6 +5,7 @@
 import { Color, Label, Mask, Node, Sprite, UIOpacity, UITransform } from "cc";
 import { atlasFrame, loadJson, spriteFrame } from "./cdn";
 import { CELL, Hero, PartnerTable, heroCellMaker } from "./herocell";
+import { listed } from "./herofilter";
 import { LNode, buildLayout, opaqueBase } from "./ui";
 import { W, H } from "./loginpage";
 
@@ -144,6 +145,7 @@ export async function buildFormPanel(canvas: Node, notify: (text: string) => voi
   const drawList = () => {
     content.removeAllChildren();
     const heroes = everyone
+      .filter(h => listed(table, h.bid))
       .filter(h => campFilter === 0 || (table.base[String(h.bid)]?.[1] ?? 0) === campFilter)
       .sort((a, b) => b.star - a.star || b.power - a.power || a.partner_id - b.partner_id);
     const rows = Math.ceil(heroes.length / COLS);

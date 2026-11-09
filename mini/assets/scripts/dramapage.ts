@@ -23,7 +23,8 @@ export async function buildDramaPage(canvas: Node): Promise<DramaPage> {
     loadJson<ItemTable>("tables/items.json"),
     loadJson<{ b: { [unit: string]: number } }>("tables/battle_models.json"), // b: stage unit -> head_icon of its boss
   ]);
-  const built = await buildLayout(layout, canvas, { hide: ["encounter_btn", "next_battle_time", "tips"] });
+  // panelImages: the boss button is a Panel carrying its own picture (battledrama_1044); no other visible Panel of this layout has one
+  const built = await buildLayout(layout, canvas, { hide: ["encounter_btn", "next_battle_time", "tips"], panelImages: true });
   const by = built.byName;
   const root = built.root;
   root.setPosition(-W / 2, -H / 2 + 108 - 65, 0); // root_wnd's bottom sits above the bottom bar (the original: -bottom height - 65, anchored bottom-centre)

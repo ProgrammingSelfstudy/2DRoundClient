@@ -8,6 +8,8 @@ export interface Server { srv_id: string; name: string; ip: string; port: number
 export interface Entered { rid: number; name: string; srv_id: string; created: boolean; token: string; }
 
 const PLATFORM = "symlf";
+// the login service puts the accounts that send client=h5 on a platform of their own, so rules for H5 players (their starter hero) never touch the original client's
+const CLIENT = "h5";
 let HTTP_BASE = "/loginapi"; // the dev server proxies this to the login HTTP service, so the browser stays on one origin
 export const setHttpBase = (base: string) => { HTTP_BASE = base; }; // for tests outside a browser, which have no proxy
 
@@ -20,7 +22,7 @@ const luaNum = (text: string, key: string) => {
 const LOGIN_ERRORS: Record<string, string> = { "206": "账号不存在", "207": "密码错误", "208": "账号状态异常，请联系客服" };
 
 export async function httpLogin(account: string, password: string): Promise<string> {
-  const q = new URLSearchParams({ username: account, password });
+  const q = new URLSearchParams({ username: account, password, client: CLIENT });
   const text = await (await fetch(`${HTTP_BASE}/index.php/userlogin/userLogins2?${q}`)).text();
   if (luaNum(text, "code") === 1) {
     const token = luaStr(text, "msg");
@@ -34,7 +36,7 @@ const REG_ERRORS: Record<string, string> = { "200": "账号已存在", "203": "�
 
 // the platform registration of the original client: "205" means registered
 export async function httpRegister(account: string, password: string): Promise<void> {
-  const q = new URLSearchParams({ username: account, password });
+  const q = new URLSearchParams({ username: account, password, client: CLIENT });
   const text = await (await fetch(`${HTTP_BASE}/index.php/userlogin/userRegs?${q}`)).text();
   const code = luaStr(text, "msg") ?? "";
   if (code !== "205") throw new Error(REG_ERRORS[code] ?? `注册服务返回：${text.slice(0, 100)}`);

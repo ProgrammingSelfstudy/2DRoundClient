@@ -39,6 +39,11 @@ export function fileUrl(logical: string): string {
   return `${cdnBase}/f/${f.hash.slice(0, 2)}/${f.hash}.${f.ext}`;
 }
 
+// whether the release carries a file (a model's action file may be missing: its animation then lives in another file of the model)
+export function hasFile(logical: string): boolean {
+  return !!manifest?.files[logical];
+}
+
 const pages = new Map<string, Promise<Texture2D>>();
 
 // the texture of an image in the manifest; loaded once and shared by every frame cut from it

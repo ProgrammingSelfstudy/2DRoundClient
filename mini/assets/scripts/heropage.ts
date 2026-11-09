@@ -3,16 +3,17 @@
 import { Color, Label, Mask, Node, Sprite, UITransform } from "cc";
 import { loadJson, spriteFrame } from "./cdn";
 import { CELL, Hero, PartnerTable, heroCellMaker } from "./herocell";
+import { listed } from "./herofilter";
 import { LNode, buildLayout, opaqueBase } from "./ui";
 import { W, H } from "./loginpage";
 
 const COLS = 5;
 
-export interface HeroPage { root: Node; setHeroes(list: Hero[], capacity?: number): void; show(on: boolean): void; onHero(f: (h: Hero) => void): void; onEmbattle(f: () => void): void }
+export interface HeroPage { root: Node; setHeroes(list: Hero[], capacity?: number): void; show(on: boolean): void; onHero(f: (h: Hero) => void): void; onEmbattle(f: () => void): void; onTab(f: (index: number) => void): void }
 
 export async function buildHeroPage(canvas: Node): Promise<HeroPage> {
   let everyone: Hero[] = [], cap: number | undefined, campFilter = 0;
-  let tapHero: (h: Hero) => void = () => {}, embattle = () => {};
+  let tapHero: (h: Hero) => void = () => {}, embattle = () => {}, tapTab: (index: number) => void = () => {};
   let renderHeroes = () => {}; // set once the grid code below exists; the camp buttons are wired before that
   const [win, table] = await Promise.all([loadJson<LNode>("layouts/hero/hero_bag_window.json"), loadJson<PartnerTable>("tables/partners.json")]);
   const built = await buildLayout(win, canvas, {
@@ -51,7 +52,7 @@ export async function buildHeroPage(canvas: Node): Promise<HeroPage> {
     });
   });
 
-  // the four tabs (英雄 图鉴 幽灵 信念): the first is shown; the others have no page yet
+  // the four tabs (英雄 图鉴 幽灵 信念): the first is this page; a tap on any is handed to onTab (图鉴 opens the library, the others have no page yet)
   const tabs = ["英雄", "图鉴", "幽灵", "信念"];
   tabs.forEach((title, i) => {
     const btn = built.byName.get("tab_container")!.getChildByName(`tab_btn_${i + 1}`)!;
@@ -65,6 +66,7 @@ export async function buildHeroPage(canvas: Node): Promise<HeroPage> {
     btn.getChildByName("select_img")!.active = on;
     btn.getChildByName("normal_img")!.active = !on;
     btn.getChildByName("red_point")!.active = false;
+    btn.on(Node.EventType.TOUCH_END, () => tapTab(i));
   });
 
   // the scroll area: a clipped viewport and a content node dragged inside it
@@ -89,6 +91,7 @@ export async function buildHeroPage(canvas: Node): Promise<HeroPage> {
   const render = () => {
     content.removeAllChildren();
     const heroes = everyone
+      .filter(h => listed(table, h.bid))
       .filter(h => campFilter === 0 || (table.base[String(h.bid)]?.[1] ?? 0) === campFilter)
       .sort((a, b) => b.star - a.star || b.power - a.power || a.partner_id - b.partner_id);
     const rows = Math.ceil(heroes.length / COLS);
@@ -115,5 +118,6 @@ export async function buildHeroPage(canvas: Node): Promise<HeroPage> {
     show(on) { root.active = on; },
     onHero(f) { tapHero = f; },
     onEmbattle(f) { embattle = f; },
+    onTab(f) { tapTab = f; },
   };
 }

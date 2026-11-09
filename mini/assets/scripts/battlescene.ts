@@ -1,10 +1,13 @@
 // The battle scene, from the server's 20027 (who stands where) and 20004 (the attacks of a round): the stage's two background layers and
 // every fighter's Spine animations at its grid cell. The grid is the original's (SkillAct.Pos2GridLeft / NormalPosGridRight; a cell is 1/80
-// of the design width and height, the role layer sits 300 above the bottom). Skill effects, buffs and the elf come later.
-import { Color, Graphics, HorizontalTextAlignment, Label, Node, Sprite, UITransform, Vec3, VerticalTextAlignment, sp, tween } from "cc";
-import { loadJson, spriteFrame } from "./cdn";
+// of the design width and height, the role layer sits 300 above the bottom). How a skill is played (its animation, the run to the target and back, the
+// screen shake, hurt or not) is worked out by skillplan.ts from tables/skill_fx.json; this file carries it out. Skill effects and the elf come later.
+import { Color, Graphics, HorizontalTextAlignment, Label, Node, Sprite, Tween, UITransform, Vec3, VerticalTextAlignment, sp, tween } from "cc";
+import { hasFile, loadJson, spriteFrame } from "./cdn";
 import { spineData } from "./spine";
 import { W, H } from "./loginpage";
+import { attackOf, backTarget, effectInfo, hitEvent, hitShare, movePlan, moveTarget, shakeSteps } from "./skillplan";
+import type { Cell, Fx, MovePlan } from "./skillplan";
 import type { Msg } from "./shared/proto/codec";
 
 interface Models { p: { [bidStar: string]: string }; u: { [unit: string]: [string, number] } }
@@ -15,18 +18,19 @@ const RIGHT_NORMAL: number[][] = [[42, 15], [42, 21], [42, 27], [42, 15], [42, 2
 const ROLE_LAYER_Y = 300, FAR_Y = 736, GROUND_Y = 40;
 const OBJECT_PARTNER = 2, OBJECT_UNIT = 3; // BattleObjectType; the elf (5) and the hallows come later
 
-// the animation of a skill: the original's anime_user_atk of the skill's effect group (skill number // 10), table tables/skill_actions.json. A skill with
-// no effect group (about one in seven of the server's skills) falls back to a guess by its number: ...001 action1, ...101 action2, ...201 action3, ...301 action5
-const ACTIONS = ["action1", "action2", "action3", "action5"];
-const guessAction = (skillBid: number) => ACTIONS[Math.min(ACTIONS.length - 1, Math.floor((skillBid % 1000) / 100))];
 const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 const BAR_W = 80, BAR_H = 8;
+const ACTION_FILES = ["action", "action1", "action2", "action3", "action4", "action5", "action6", "action7", "action8", "action9"];
+
+interface Hooks { hit?: (k: number) => void; move?: () => void; back?: () => void; shake?: () => void }
 
 export interface BattleScene {
   root: Node;
   start(opening: Msg, mapId: number): Promise<void>;
   play(skillPlays: Msg[]): Promise<void>; // one round's attacks (20004)
   round(n: number, max: number): void; // "第 n/max 回合" at the top, from the action count of 20002
+  caption(text: string): void; // any line at the same place, for the skill demo
+  isPlaceholder(pos: number): boolean; // whether the fighter at a position stands as a disc (its model did not load), for the skill demo
   banner(text: string, win: boolean): void; // the result, over the field
   show(on: boolean): void;
   onTap(f: () => void): void;
@@ -38,6 +42,8 @@ interface Fighter {
   group: number; model: string; root: Node; body: Node; bar: Graphics;
   hp: number; hpMax: number; dead: boolean; buffs: Map<number, number>; status: Label; // buffs: buff id -> bid of the statuses on it, status: their names over the bar
   ph: boolean; // ph: stands as a placeholder (no model, or none the release carries)
+  home: Cell; side: number; row: number; // its grid cell, +1 for the first group and -1 for the second, its row 1..3 (the original's obj_type and col)
+  seq: number; // counts the animations started on it, so a finished one only returns to standing when no newer one has begun
   files: Map<string, Promise<sp.Skeleton | null>>;
 }
 
@@ -48,12 +54,11 @@ function cell(group: number, pos: number): number[] {
 }
 
 export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
-  const [models, skillActions, buffTable] = await Promise.all([
+  const [models, fx, buffTable] = await Promise.all([
     loadJson<Models>("tables/battle_models.json"),
-    loadJson<{ [group: string]: string }>("tables/skill_actions.json"),
+    loadJson<Fx>("tables/skill_fx.json"),
     loadJson<{ [bid: string]: [string, number] }>("tables/buffs.json"), // buff bid -> name, 1 benefit / 2 harm
   ]);
-  const actionOf = (skillBid: number) => skillActions[String(Math.floor(skillBid / 10))] ?? guessAction(skillBid);
   const root = new Node("battle_scene");
   root.layer = canvas.layer;
   const rt = root.addComponent(UITransform);
@@ -164,9 +169,11 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
     return p;
   };
 
-  // find the skeleton that has animation `name`: its own file, else the first action's
+  // find the skeleton that has animation `name`: its own file, else action1's, else any other action file of the model (the original ships some
+  // animations inside another file: H30021's action3 is in action2.json); the files the release lacks are not tried
   const skeletonFor = async (f: Fighter, name: string): Promise<{ s: sp.Skeleton; anim: string } | null> => {
-    for (const fileName of [name, "action1"]) {
+    const own = f.ph ? [] : [name, "action1", ...ACTION_FILES.filter(n => n !== name && n !== "action1")].filter(n => hasFile(`spine/hero/${f.model}/${n}.json`));
+    for (const fileName of own) {
       const s = await file(f, fileName);
       if (s?.findAnimation(name)) return { s, anim: name };
     }
@@ -179,23 +186,41 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
     s.node.active = true;
   };
 
-  // looping (standing) or once; a once-animation resolves when it ends and the fighter goes back to standing
-  const perform = async (f: Fighter, name: string, loop: boolean): Promise<void> => {
+  // looping (standing) or once; a once-animation resolves when it ends and the fighter goes back to standing. `on.hit(k)` fires at each of the
+  // animation's "hit" events, k counting from 1 (the original lands the damage there, setAnimationWithEvent); an animation with none, or one that
+  // never plays, fires `on.hit(1)` when it ends. `on.move`, `on.back` and `on.shake` are its "move", "back" and "shake_point" events
+  const perform = async (f: Fighter, name: string, loop: boolean, on?: Hooks): Promise<void> => {
+    let ticks = 0;
+    const tick = () => { ticks++; on?.hit?.(ticks); };
+    const land = () => { if (ticks === 0) tick(); };
+    const mine = ++f.seq;
     const found = await skeletonFor(f, name);
-    if (!found && f.ph && !loop && !f.dead) { // a placeholder lunges at the other side instead of an action
+    if (!found && f.ph && !loop && !f.dead) { // a placeholder lunges at the other side instead of an action; the lunge is its hit
       const x = f.body.position.x, d = f.group === 1 ? 40 : -40;
-      await new Promise<void>(r => tween(f.body).to(0.15, { position: new Vec3(x + d, 0, 0) }).to(0.15, { position: new Vec3(x, 0, 0) }).call(() => r()).start());
+      await new Promise<void>(r => tween(f.body).to(0.15, { position: new Vec3(x + d, 0, 0) }).call(land).to(0.15, { position: new Vec3(x, 0, 0) }).call(() => r()).start());
       return;
     }
-    if (!found || f.dead) return;
+    if (!found || f.dead) { land(); return; }
     await showOnly(f, found.s);
     if (loop) { found.s.setAnimation(0, found.anim, true); return; }
+    // the damage lands on the animation's hit event, or on its attack event when it has no hit (the area skills); it may run past 2 s (a
+    // finishing move), so the wait for its end is its own length and a little more
+    const json = found.s.skeletonData?.skeletonJson as { animations?: { [a: string]: { events?: { name: string }[] } } } | undefined;
+    const landOn = hitEvent((json?.animations?.[found.anim]?.events ?? []).map(e => e.name));
     await new Promise<void>(resolve => {
-      const timer = setTimeout(resolve, 2500); // never wait for an animation forever
+      const timer = setTimeout(resolve, (found.s.findAnimation(found.anim)?.duration ?? 2) * 1000 + 500); // never wait for an animation forever
+      found.s.setEventListener((_entry, event) => {
+        const n = event.data.name.toLowerCase();
+        if (n === landOn) tick();
+        else if (n === "move") on?.move?.();
+        else if (n === "back") on?.back?.();
+        else if (n === "shake_point") on?.shake?.();
+      });
       found.s.setCompleteListener(() => { clearTimeout(timer); resolve(); });
       found.s.setAnimation(0, found.anim, false);
     });
-    if (!f.dead) await perform(f, "stand2", true);
+    land();
+    if (!f.dead && f.seq === mine) await perform(f, "stand2", true); // a hurt that ends late must not cut off the attack that began after it
   };
 
   // a fighter whose model the release does not carry stands as a disc with its name, so the fight can still be followed
@@ -238,21 +263,63 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
     }
   };
 
-  const hit = async (e: Msg) => {
-    applyBuffs(e);
+  const cellPos = (c: Cell) => new Vec3(c[0] * (W / 80), c[1] * (H / 80), 0);
+
+  // the fighter runs to a cell: the original's moveTo / moveBack, an exponential ease out that starts after a delay
+  const runTo = (f: Fighter, c: Cell, delay: number, time: number) => {
+    Tween.stopAllByTarget(f.root);
+    return new Promise<void>(r => tween(f.root).delay(delay).to(time, { position: cellPos(c) }, { easing: "expoOut" }).call(() => r()).start());
+  };
+
+  // after its attack a fighter is back in its own cell, however the animation's events went
+  const settle = async (f: Fighter) => {
+    if (!f.dead && Vec3.distance(f.root.position, cellPos(f.home)) > 1) await runTo(f, f.home, 0, 0.1);
+  };
+
+  // the screen shake of a shake id: the field's layers step through the offsets of shakeSteps; one shake at a time, as the original has it
+  let shaking = false;
+  const shake = async (shakeId: number) => {
+    const steps = shakeSteps(fx, shakeId);
+    if (shaking || !steps.length) return;
+    shaking = true;
+    const mine = token, layers = [far, ground, roles], base = layers.map(n => n.position.clone());
+    for (const st of steps) {
+      if (mine !== token) break;
+      layers.forEach((n, i) => n.setPosition(base[i].x + st.x, base[i].y + st.y, 0));
+      await wait(st.wait * 1000);
+    }
+    layers.forEach((n, i) => n.setPosition(base[i]));
+    shaking = false;
+  };
+
+  // a dodged hit: no damage, the fighter steps out of the way and back (SkillAct.miss)
+  const dodge = (f: Fighter) => {
+    float(f, "闪避", new Color(255, 255, 255, 255), false);
+    const x = f.body.position.x, d = f.group === 1 ? -30 : 30;
+    tween(f.body).to(0.12, { position: new Vec3(x + d, 0, 0) }).to(0.12, { position: new Vec3(x, 0, 0) }).start();
+  };
+
+  // hit k of n of an effect: the effect's damage is split into n hits (the effect row's split_hurt), each showing hitShare of it; the target is shown
+  // hurt at the first, and its hit points, death, statuses and the rest wait for the last, as in BattleModel.playMagic
+  const hit = async (e: Msg, k = 1, n = 1) => {
+    const last = k === n;
     const f = fighters.get(Number(e.target));
+    if (last) applyBuffs(e);
     if (!f) return;
+    if (Number(e.is_hit) === 0) { if (k === 1) dodge(f); return; }
+    const noHurt = effectInfo(fx, Number(e.effect_bid))?.noHurt ?? false; // the effect row says whether the target is shown hurt
     const change = Number(e.hp_changed);
-    f.hp = Math.max(0, Number(e.hp));
+    const share = hitShare(change, n);
+    f.hp = last ? Math.max(0, Number(e.hp)) : Math.max(1, f.hp + share); // after the last hit it is the server's, so rounding in the parts leaves no drift
     drawBar(f);
     if (change < 0) {
-      float(f, String(-change), e.is_crit ? new Color(255, 200, 40, 255) : new Color(255, 255, 255, 255), Boolean(e.is_crit));
-      if (Number(e.is_dead) === 1 || f.hp === 0) {
+      float(f, String(-share), e.is_crit ? new Color(255, 200, 40, 255) : new Color(255, 255, 255, 255), Boolean(e.is_crit));
+      if (last && (Number(e.is_dead) === 1 || f.hp === 0)) {
         await perform(f, "hurt", false);
         f.dead = true;
         f.root.active = false;
-      } else void perform(f, "hurt", false);
-    } else if (change > 0) float(f, `+${change}`, new Color(90, 255, 120, 255), false);
+      } else if (k === 1 && !noHurt) void perform(f, "hurt", false);
+    } else if (change > 0) float(f, `+${share}`, new Color(90, 255, 120, 255), false);
   };
 
   return {
@@ -262,6 +329,11 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
     round(n, max) {
       roundNode.removeAllChildren();
       if (n > 0) text(roundNode, `第${n}/${max}回合`, 30, new Color(255, 240, 200, 255), W / 2, H - 150);
+    },
+    isPlaceholder(pos) { return fighters.get(pos)?.ph ?? false; },
+    caption(str) {
+      roundNode.removeAllChildren();
+      text(roundNode, str, 26, new Color(255, 240, 200, 255), W / 2, H - 150);
     },
     banner(str, win) {
       top.removeAllChildren();
@@ -294,7 +366,7 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
         barNode.addComponent(UITransform);
         barNode.setPosition(0, 130, 0);
         fr.addChild(barNode);
-        const f: Fighter = { group, model: model ?? "", ph: false, buffs: new Map(), status: statusLabel(fr), root: fr, body, bar: barNode.addComponent(Graphics), hp: Number(o.hp), hpMax: Math.max(1, Number(o.hp_max)), dead: false, files: new Map() };
+        const f: Fighter = { group, model: model ?? "", ph: false, seq: 0, home: [gx, gy], side: group === 1 ? 1 : -1, row: Math.max(1, Math.min(3, Math.round((gy - 9) / 6))), buffs: new Map(), status: statusLabel(fr), root: fr, body, bar: barNode.addComponent(Graphics), hp: Number(o.hp), hpMax: Math.max(1, Number(o.hp_max)), dead: false, files: new Map() };
         drawBar(f);
         fighters.set(Number(o.pos), f);
         if (mine !== token) return;
@@ -307,17 +379,37 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
         }
       }
     },
-    // the attacks of a round in their order: the attacker plays its action, the hits land partway through it
+    // the attacks of a round in their order: the attacker plays its action, runs to the first enemy it hits on the animation's move event and back on
+    // its back event, the screen shakes on shake_point, and the hits land on its hit events, one part of an effect's split damage at each (parts the
+    // animation has no event for land together when it ends, so the total always lands)
     async play(plays) {
       const mine = token;
       for (const p of [...plays].sort((a, b) => Number(a.order) - Number(b.order))) {
         if (mine !== token) return;
         const actor = fighters.get(Number(p.actor));
         if (!actor || actor.dead) continue;
-        const swing = perform(actor, actionOf(Number(p.skill_bid)), false);
-        await wait(450);
-        await Promise.all((p.effect_play as Msg[]).map(hit));
+        const effects = p.effect_play as Msg[];
+        const attack = attackOf(fx, Number(p.skill_bid), effects.map(e => Number(e.effect_bid)));
+        const victim = effects.map(e => fighters.get(Number(e.target))).find(t => t && t.group !== actor.group);
+        const plan: MovePlan = movePlan(fx, actor.model, attack.animeRes, attack.anim);
+        const shakeId = effects.map(e => effectInfo(fx, Number(e.effect_bid))?.shakeId ?? 0).find(id => id !== 0) ?? 0;
+        const parts = effects.map(e => ({ e, n: effectInfo(fx, Number(e.effect_bid))?.splitHurt ?? 1, done: 0 }));
+        const pending: Promise<void>[] = [];
+        const land = () => { for (const part of parts) if (part.done < part.n) pending.push(hit(part.e, ++part.done, part.n)); };
+        const swing = perform(actor, attack.anim, false, {
+          hit: land,
+          move: () => {
+            if (!victim || actor.ph) return; // no enemy to run to (a heal or a status), or a disc, which lunges by itself
+            actor.root.setSiblingIndex(roles.children.length); // to the top, so it runs over the others
+            void runTo(actor, moveTarget(plan, actor.side, actor.home, victim.home, actor.row), plan.delay, plan.time);
+          },
+          back: () => { if (victim && !actor.ph) void runTo(actor, backTarget(plan, actor.side, actor.home, victim.home), plan.backDelay, plan.backTime); },
+          shake: () => { if (shakeId) void shake(shakeId); },
+        });
         await swing;
+        while (parts.some(part => part.done < part.n)) land();
+        await Promise.all(pending);
+        await settle(actor);
         await wait(200);
       }
     },

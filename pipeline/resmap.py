@@ -194,6 +194,14 @@ def main(root, audit_path, out_dir):
     for i in range(100001):
         try_path(f"resource/headicon/b{i}.jpg", "template")
     print(f"boss portraits: resolved {len(found) - portrait_before} files")
+    # The hero library draws a hero's card as "bigbg/partnercard/partnercard_" .. bid (hero_library_main_window.lua); the bids are the
+    # keys of data_partner_base. Only the cards that shipped in the package are found: the newer heroes' cards came from the original's CDN.
+    card_before = len(found)
+    lua = os.path.join(root, "outputs/readable-source/lua/ePoCrKQkWA3vpiOwu2oNfOh02MOeNheW/partner_data.lua")
+    for bid in sorted(set(re.findall(r"\n\t\[(\d+)\] = \{\n\t\tbid = ", open(lua, encoding="utf-8", errors="ignore").read()))):
+        for ext in ("png", "jpg"):
+            try_path(f"resource/bigbg/partnercard/partnercard_{bid}.{ext}", "template")
+    print(f"hero cards: resolved {len(found) - card_before} files")
     print(f"templates: {len(templates)} found, {len(templates) - len(skipped)} filled, resolved {len(found) - tmpl_before} files")
     print("not filled:", skipped)
 

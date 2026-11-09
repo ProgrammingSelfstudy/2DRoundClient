@@ -7,6 +7,7 @@ import { buildMainPage } from "./mainpage";
 import { buildBackpackPage } from "./backpackpage";
 import { buildHeroPage } from "./heropage";
 import { buildHeroDetail } from "./herodetail";
+import { buildHeroLibrary } from "./herolibrary";
 import { buildFormPanel, type Formation } from "./formpanel";
 import type { Hero } from "./herocell";
 import { buildDramaPage } from "./dramapage";
@@ -17,6 +18,7 @@ import { buildFailWindow } from "./battlefail";
 import { spineNode } from "./spine";
 import { buildBattleScene } from "./battlescene";
 import { Feed, runFight } from "./battleflow";
+import { runSkillDemo } from "./skilldemo";
 import { buildCityScene } from "./citybg";
 import { toast } from "./toast";
 import { GameSocket } from "./shared/net";
@@ -110,7 +112,11 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
           heroes.setHeroes(city.partners as unknown as Parameters<typeof heroes.setHeroes>[0], Number(r.num ?? 0));
         } catch (e) { console.warn("hero list:", (e as Error).message); }
       };
+      const library = await buildHeroLibrary(canvas); // built before the info window so that the window opens over it
       const detail = await buildHeroDetail(canvas);
+      heroes.onTab(i => { if (i === 1) library.open(); else if (i !== 0) toast(canvas, "暂未开放"); });
+      // a card of the library opens the hero info window with the hero at its initial star (no attributes: it is nobody's hero)
+      library.onHero((bid, star) => { detail.open({ partner_id: 0, bid, lev: 1, star, power: 0 }, null); detail.root.setSiblingIndex(canvas.children.length); });
       // tapping a hero opens its info window at once with what the list has, then fills the attribute list from 11063
       heroes.onHero(async h => {
         detail.open(h, null);
@@ -198,6 +204,9 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
           spineNode(`spine/hero/${model}/stand2`, "stand2", canvas).then(sk => sk.node.setPosition(x, -60, 0), e => console.warn(`battledemo ${model}: ${(e as Error).message}`));
         }
       }
+      // dev convenience: ?skilldemo=10401_4 plays every active skill of that hero (bid_star) against a dummy; see skilldemo.ts
+      const skillDemo = q.get("skilldemo");
+      if (skillDemo) void runSkillDemo(battle, skillDemo).catch(e => console.warn(`skilldemo: ${(e as Error).message}`));
       page.hide(); // the login page gives way to the main city
     } catch (e) {
       console.warn(`login flow: ${(e as Error).stack ?? e}`);
