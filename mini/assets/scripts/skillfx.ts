@@ -23,11 +23,14 @@ export function entitiesOf(t: FxRes, effectBids: number[], list: number): number
 export interface FxSpot { root: Node; side: number; height: number } // a fighter: its position node, +1 or -1 for the way it faces, its model's height
 export interface FxLayers { above: Node; below: Node }
 
-// one model played once at a place and then removed; a model the release lacks is skipped. The action names both the file (action, action1, ...)
-// and the animation in it, as SpineRenderer.New(position, res, scale, loop, action) does
+// one model played once at a place and then removed; a model the release lacks is skipped. The action names the animation and, for most models,
+// the file it is in (action, action1, ...), as SpineRenderer.New(position, res, scale, loop, action) does; a model with the one file "action"
+// keeps all its animations there (E80170's action1 and action2), so that file is looked in when the model has none of the action's name
 async function once(res: string, action: string, parent: Node, x: number, y: number, scale: number, flip: number): Promise<void> {
-  const base = `spine/fx/${res}/${action}`;
-  if (!res || !hasFile(`${base}.json`)) return;
+  if (!res) return;
+  const own = hasFile(`spine/fx/${res}/${action}.json`);
+  const base = `spine/fx/${res}/${own ? action : "action"}`;
+  if (!hasFile(`${base}.json`)) return;
   const n = new Node(`fx_${res}`);
   n.layer = parent.layer;
   n.addComponent(UITransform);
@@ -39,7 +42,7 @@ async function once(res: string, action: string, parent: Node, x: number, y: num
   n.setScale(flip * scale, scale, 1);
   parent.addChild(n);
   const anims = Object.keys((s.skeletonData.skeletonJson as { animations?: object } | null)?.animations ?? {});
-  const anim = s.findAnimation(action) ? action : anims[0];
+  const anim = s.findAnimation(action) ? action : own ? anims[0] : ""; // the shared file is only used for the animation asked for
   if (!anim) { n.destroy(); return; }
   s.setCompleteListener(() => { if (n.isValid) n.destroy(); });
   s.setAnimation(0, anim, false);

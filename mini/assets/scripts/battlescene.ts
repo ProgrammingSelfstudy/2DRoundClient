@@ -84,7 +84,9 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
   floor.fillColor = new Color(118, 124, 58, 255);
   floor.rect(0, 0, W, 170);
   floor.fill();
-  const far = layer("far", 0, FAR_Y), ground = layer("ground", 0, GROUND_Y), fxBelow = layer("fx_below", 0, 0), roles = layer("roles", 0, ROLE_LAYER_Y), fxAbove = layer("fx_above", 0, 0);
+  const far = layer("far", 0, FAR_Y), ground = layer("ground", 0, GROUND_Y), fxBelow = layer("fx_below", 0, ROLE_LAYER_Y), roles = layer("roles", 0, ROLE_LAYER_Y), fxAbove = layer("fx_above", 0, ROLE_LAYER_Y);
+  // the effect layers sit as high as the role layer (battle_scene_view.lua: effect_layer_1 and _2 at map_init_y), so a scene effect's place is
+  // counted from the fighters' ground line, not from the bottom of the screen
   const top = layer("top", 0, 0); // the result banner, above the fighters
   const roundNode = layer("round", 0, 0); // the round counter, kept apart from the banner so a new fight can clear one without the other
   let tapped = () => {};
