@@ -10,6 +10,7 @@ export interface Fx {
   g: { [group: string]: string }; // effect group (skill number // 10) -> attack animation
   s: { [shakeId: string]: [number, number, number] }; // strength, rounds, step in ms
   k?: { [effectBid: string]: [number, number, number] }; // black screen of an effect: delay (1/30 s), opacity 0..255, hides everyone but attacker and targets; absent in older releases
+  nm?: { [skillBid: string]: string }; // the name of every active skill that is not a normal attack (the banner's text); absent in older releases
   n?: number[]; // the skills that are a hero's normal attack, which get no skill-name banner; absent in older releases
   m: { [model: string]: { [animeRes: string]: { [anim: string]: number[] } } }; // see MOVE_FIELDS; "0" is the default row
 }

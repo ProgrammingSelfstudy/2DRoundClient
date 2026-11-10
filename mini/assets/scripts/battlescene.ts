@@ -305,7 +305,7 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
   const bannerSpine = new Map<number, Promise<sp.Skeleton | null>>();
   let bannerTimer: ReturnType<typeof setTimeout> | undefined;
   const showSkillName = async (f: Fighter, skillBid: number): Promise<void> => {
-    const name = skillNames?.k[String(skillBid)]?.[0];
+    const name = fx.nm?.[String(skillBid)] ?? skillNames?.k[String(skillBid)]?.[0];
     if (f.type !== OBJECT_PARTNER || !name || (fx.n ?? []).indexOf(skillBid) >= 0 || !hasFile(`icons/head/${f.bid}.webp`)) return;
     if (lastBanner.get(f) === skillBid) return;
     lastBanner.set(f, skillBid);

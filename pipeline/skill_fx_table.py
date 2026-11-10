@@ -10,6 +10,7 @@
      skill_data.lua's act table; plain blackScreen does nothing in battle_model.lua, blackScreen6 is not done). Opacity is the act's third
      argument, 255 without one; blackScreen2 (only the attacker and its targets stay shown) also hides the others
   n  [skill bid] of the active skills that are a hero's normal attack (skill row field 6 is 1): the skill-name banner is not shown for them
+  nm skill bid -> name of every active skill that is not a normal attack, so the banner finds the form variants (541314 is 阿修罗·亡者戏 again) that no hero's skill list has
   m  model -> anime_res -> animation name -> [move_time, move_model_x, move_model_y, back_delay_time, back_move_time, back_model_x,
      move_delay_time, is_reverse, is_move_area, is_col_act, is_move_map] (battle_act_data.lua, data_info); "0" is the default row
 
@@ -96,6 +97,18 @@ def normals(lua_dir):
     return sorted(out)
 
 
+def skill_names(lua_dir):
+    """skill bid -> name of the active skills that are not normal attacks (every skill row of skill_data*.lua, read with the pattern of normals())"""
+    out = {}
+    pat = re.compile(r'\[(\d+)\] = "\{\d+, \\"([^\n]*?)\\", \\"[^\n]*?\\", -?\d+, -?\d+, -?\d+, (\d+), -?\d+, \\"active_skill\\"')
+    for path in sorted(glob.glob(f"{lua_dir}/skill_data*.lua")):
+        for m in pat.finditer(open(path, encoding="utf-8").read()):
+            if m.group(3) != "1" and m.group(2):
+                out[m.group(1)] = m.group(2)
+    assert len(out) > 1000 and out.get("541314") == "阿修罗·亡者戏", len(out)
+    return out
+
+
 def shakes(lua_dir):
     src = open(f"{lua_dir}/skill_data.lua", encoding="utf-8").read()
     src = src[src.index("Config.SkillData.data_get_shake_data = {"):]
@@ -159,7 +172,7 @@ def acts(lua_dir):
 
 def table(lua_dir):
     t, e = effects(lua_dir)
-    return {"t": t, "e": e, "g": group_actions(lua_dir), "s": shakes(lua_dir), "k": blacks(lua_dir), "n": normals(lua_dir), "m": acts(lua_dir)}
+    return {"t": t, "e": e, "g": group_actions(lua_dir), "s": shakes(lua_dir), "k": blacks(lua_dir), "n": normals(lua_dir), "nm": skill_names(lua_dir), "m": acts(lua_dir)}
 
 
 if __name__ == "__main__":
