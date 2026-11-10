@@ -1,33 +1,28 @@
-// The hero library (图鉴): the original `hero/hero_library_main_window` (HeroLibraryMainWindow). Every hero of the client's table, three cards to a
+// The hero library (图鉴): the original `hero/hero_library_main_window` (HeroLibraryMainWindow). Every hero of the client's table, five head cells to a
 // row, grouped by career (type) and ordered by initial star, with the camp buttons of the bottom bar as a filter. It is driven by the client's
-// own table (data_partner_base), so it needs no server call. The original draws a hero's card from bigbg/partnercard and opens a picture window
-// for the heroes that have a drawing; the package carries only some of those pictures (the newer heroes' came from the original's CDN), so a
-// hero with no card here shows its Spine model on the card, and tapping a card opens the hero info window with the model instead.
+// own table (data_partner_base), so it needs no server call. Each hero is the hero page's head cell (grey when the player does not have it); a tap
+// opens the hero info window with the standing model. (The original's package card pictures do not match their heroes, so none are used.)
 import { Color, HorizontalTextAlignment, Label, Mask, Node, Sprite, UITransform, VerticalTextAlignment } from "cc";
-import { atlasFrame, hasFile, loadJson, spriteFrame } from "./cdn";
+import { atlasFrame, loadJson, spriteFrame } from "./cdn";
 import { listed } from "./herofilter";
+import { CELL, heroCellMaker } from "./herocell";
 import type { PartnerTable } from "./herocell";
 import { LNode, buildLayout, opaqueBase } from "./ui";
 import { dragScroll } from "./widgets";
 import { W, H } from "./design";
-import { spineNode } from "./spine";
 
 type Row = PartnerTable["base"][string];
-interface Models { p: { [key: string]: string } }
 
-const COLS = 3, ITEM_W = 220, ITEM_H = 335, TITLE_H = 80, FIRST_TITLE_H = 50, CARD_W = 206, CARD_H = 325; // the cell step and the item layout's own size
-const COMMON = "ui/common/common.json", LIBRARY = "ui/herolibrary/herolibrary.json";
+const COLS = 5, ITEM_W = CELL, ITEM_H = CELL, TITLE_H = 80, FIRST_TITLE_H = 50; // the cell step: the hero page's
+const LIBRARY = "ui/herolibrary/herolibrary.json";
 const CAREER: { [type: number]: string } = { 2: "法师", 3: "战士", 4: "坦克", 5: "辅助" }; // HeroConst.CareerName
-const CAMP: { [camp: number]: string } = { 1: "common_90067", 2: "common_90068", 3: "common_90069", 4: "common_90070", 5: "common_90079" };
 
 export interface HeroLibrary { root: Node; open(): void; close(): void; onClose(f: () => void): void; onHero(f: (bid: number, star: number) => void): void }
 
-export async function buildHeroLibrary(canvas: Node): Promise<HeroLibrary> {
-  const [win, item, table, models] = await Promise.all([
+export async function buildHeroLibrary(canvas: Node, owned: () => Set<number>): Promise<HeroLibrary> {
+  const [win, table] = await Promise.all([
     loadJson<LNode>("layouts/hero/hero_library_main_window.json"),
-    loadJson<LNode>("layouts/hero/hero_library_main_item.json"),
     loadJson<PartnerTable>("tables/partners.json"),
-    loadJson<Models>("tables/battle_models.json"),
   ]);
   const built = await buildLayout(win, canvas, {});
   const root = built.root;
@@ -80,34 +75,15 @@ export async function buildHeroLibrary(canvas: Node): Promise<HeroLibrary> {
     return n;
   };
 
-  // one card: the item layout, its picture and the model when there is no picture
-  const card = async (bid: number, row: Row): Promise<Node> => {
-    const b = await buildLayout(item, content, {});
-    const r = b.root;
-    const star = row[2];
-    const icon = b.byName.get("hero_icon")!;
-    const set = (name: string, atlas: string, frame: string) => {
-      const sp = b.byName.get(name)!.getComponent(Sprite);
-      if (sp) atlasFrame(atlas, frame).then(sf => { if (sp.isValid) sp.spriteFrame = sf; }, () => {});
-    };
-    set("camp_icon", COMMON, `${CAMP[row[1]] ?? "common_90071"}.png`);
-    set("profession_icon", COMMON, `common_900${45 + row[3]}.png`);
-    const name = b.byName.get("name")!.getComponent(Label)!;
-    name.string = row[0];
-    const picture = `bg/partnercard/partnercard_${bid}.webp`;
-    if (hasFile(picture)) {
-      const sp = icon.getComponent(Sprite) ?? icon.addComponent(Sprite);
-      sp.sizeMode = Sprite.SizeMode.RAW;
-      icon.setScale(0.6, 0.6, 1);
-      spriteFrame(picture).then(sf => { if (sp.isValid) { sp.spriteFrame = sf; icon.getComponent(UITransform)!.setContentSize(sf.width, sf.height); } }, () => {});
-    } else {
-      icon.getComponent(Sprite)?.destroy();
-      const model = models.p[`${bid}_${star}`];
-      // the model stands on the bottom of the card (the node is 0.6 scaled and centred on the card, whose picture is 320x521)
-      if (model) spineNode(`spine/hero/${model}/stand2`, "stand2", icon).then(s => { s.node.setScale(2.2, 2.2, 1); s.node.setPosition(0, -235, 0); }, () => {});
-    }
-    r.on(Node.EventType.TOUCH_END, () => { if (scroll.moved() < 12) tapHero(bid, star); });
-    return r;
+  // one card: the same head cell as the hero page (quality frame, head, camp, stars), grey when the player does not have the hero; a tap opens the
+  // hero info window with the standing model
+  const makeCell = heroCellMaker(table, root.layer, h => tapHero(h.bid, h.star));
+  const card = (bid: number, row: Row): Node => {
+    const cell = makeCell({ partner_id: 0, bid, lev: 1, star: row[2], power: 0 });
+    cell.getChildByName("lev")?.destroy(); // a library entry has no level
+    if (!owned().has(bid)) for (const s of cell.getComponentsInChildren(Sprite)) s.grayscale = true;
+    content.addChild(cell);
+    return cell;
   };
 
   const ring = node("img_select");
@@ -151,9 +127,8 @@ export async function buildHeroLibrary(canvas: Node): Promise<HeroLibrary> {
     scroll.range(top, top + Math.max(0, total - vt.height));
     content.setPosition(0, top, 0);
     for (const p of placed) {
-      const r = await card(p.bid, p.row);
-      if (seq !== drawn) { r.destroy(); return; } // another camp was chosen while the cards were being built
-      r.setPosition(p.x - CARD_W / 2, p.y - CARD_H / 2, 0); // the item layout's origin is its bottom left corner
+      if (seq !== drawn) return; // another camp was chosen
+      card(p.bid, p.row).setPosition(p.x, p.y, 0);
     }
   };
 

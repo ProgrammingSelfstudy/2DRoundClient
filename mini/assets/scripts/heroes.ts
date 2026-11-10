@@ -49,7 +49,7 @@ export function heroFeature(app: App, formation: FormationFeature, battle: Win<B
   }, w => w.close());
 
   const library = windows.define("full", async parent => {
-    const lib = await buildHeroLibrary(parent);
+    const lib = await buildHeroLibrary(parent, () => new Set(store.heroes.map(x => x.bid)));
     // a card of the library opens the hero info window with the hero at its initial star (no attributes: it is nobody's hero)
     lib.onHero((bid, star) => attempt(app, async () => (await detail.front()).open({ partner_id: 0, bid, lev: 1, star, power: 0 }, null)));
     return lib;
