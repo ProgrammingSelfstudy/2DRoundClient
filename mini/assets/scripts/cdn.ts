@@ -65,6 +65,41 @@ export function texture(logical: string): Promise<Texture2D> {
   return p;
 }
 
+const pmaPages = new Map<string, Promise<Texture2D>>();
+
+// The same image with its colours multiplied by its alpha. A Spine slot blended as "screen" or "multiply" takes the colour of a pixel whatever its
+// alpha, so the colour a picture keeps in its transparent parts would show (a green band across 索隆's purple slash); the original's engine
+// premultiplies every PNG as it loads, and so must the models that have such slots (spine.ts).
+export function texturePma(logical: string): Promise<Texture2D> {
+  let p = pmaPages.get(logical);
+  if (!p) {
+    p = (async () => {
+      const res = await fetch(fileUrl(logical));
+      if (!res.ok) throw new Error(`${logical}: ${res.status}`);
+      const bmp = await createImageBitmap(await res.blob(), { premultiplyAlpha: "none" });
+      const c = document.createElement("canvas");
+      c.width = bmp.width;
+      c.height = bmp.height;
+      const g = c.getContext("2d")!;
+      g.drawImage(bmp, 0, 0);
+      const px = g.getImageData(0, 0, c.width, c.height).data; // straight alpha
+      const out = new Uint8Array(px.length);
+      for (let i = 0; i < px.length; i += 4) {
+        const a = px[i + 3];
+        out[i] = (px[i] * a + 127) / 255;
+        out[i + 1] = (px[i + 1] * a + 127) / 255;
+        out[i + 2] = (px[i + 2] * a + 127) / 255;
+        out[i + 3] = a;
+      }
+      const tex = new Texture2D();
+      tex.image = new ImageAsset({ _data: out, _compressed: false, width: c.width, height: c.height, format: Texture2D.PixelFormat.RGBA8888 });
+      return tex;
+    })();
+    pmaPages.set(logical, p);
+  }
+  return p;
+}
+
 // a whole image as one sprite frame
 export function spriteFrame(logical: string): Promise<SpriteFrame> {
   let p = frames.get(logical);

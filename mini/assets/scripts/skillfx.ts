@@ -4,7 +4,7 @@
 // side of the field, 4 the enemy's side.
 import { Node, UITransform, sp } from "cc";
 import { hasFile } from "./cdn";
-import { spineData } from "./spine";
+import { setModel, spineData } from "./spine";
 import { W, H } from "./design";
 
 // res_up, res_down, up_action, down_action, play_type, scale (thousandths), h_scale, x_fix, y_fix, is_front, is_col_effect, spec_res_up
@@ -35,9 +35,8 @@ async function once(res: string, action: string, parent: Node, x: number, y: num
   n.layer = parent.layer;
   n.addComponent(UITransform);
   const s = n.addComponent(sp.Skeleton);
-  try { s.skeletonData = await spineData(base); } catch (e) { console.warn(`skill fx ${res}: ${(e as Error).message}`); return; }
+  try { setModel(s, await spineData(base)); } catch (e) { console.warn(`skill fx ${res}: ${(e as Error).message}`); return; }
   if (!parent.isValid) return;
-  s.premultipliedAlpha = false;
   n.setPosition(x, y, 0);
   n.setScale(flip * scale, scale, 1);
   parent.addChild(n);

@@ -4,7 +4,7 @@
 // screen shake, hurt or not) is worked out by skillplan.ts from tables/skill_fx.json; this file carries it out. Skill effects and the elf come later.
 import { Color, Graphics, HorizontalTextAlignment, Label, Node, Sprite, Tween, UITransform, Vec3, VerticalTextAlignment, sp, tween } from "cc";
 import { hasFile, loadJson, spriteFrame } from "./cdn";
-import { spineData } from "./spine";
+import { setModel, spineData } from "./spine";
 import { W, H } from "./design";
 import { attackOf, backTarget, effectInfo, hitEvent, hitShare, movePlan, moveTarget, shakeSteps } from "./skillplan";
 import type { Cell, Fx, MovePlan } from "./skillplan";
@@ -162,8 +162,7 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
           n.layer = root.layer;
           n.addComponent(UITransform);
           const s = n.addComponent(sp.Skeleton);
-          s.skeletonData = await spineData(`spine/hero/${f.model}/${name}`);
-          s.premultipliedAlpha = false;
+          setModel(s, await spineData(`spine/hero/${f.model}/${name}`));
           n.active = false;
           f.body.addChild(n);
           return s;

@@ -1,9 +1,16 @@
 // Spine models from the release (spine/<fx|hero>/<model>/<action>.{json,atlas,webp}); the .json was converted from the original's Spine 3.4
 // binary by pipeline/skel_to_json.py, because Creator's runtime is 3.8 and cannot read the 3.4 binary.
 import { Node, UITransform, sp } from "cc";
-import { fileUrl, texture } from "./cdn";
+import { fileUrl, texture, texturePma } from "./cdn";
 
 const models = new Map<string, Promise<sp.SkeletonData>>();
+const pma = new Set<sp.SkeletonData>(); // the models whose pictures were loaded premultiplied (see below)
+
+// give a skeleton its model; this, not `skeletonData =` alone, so that it draws premultiplied pictures as such
+export function setModel(s: sp.Skeleton, data: sp.SkeletonData): void {
+  s.skeletonData = data;
+  s.premultipliedAlpha = pma.has(data);
+}
 
 // `base` is "spine/fx/E51130/action": the skeleton, atlas and the pages the atlas names, loaded once per model
 export function spineData(base: string): Promise<sp.SkeletonData> {
@@ -20,7 +27,11 @@ export function spineData(base: string): Promise<sp.SkeletonData> {
       sd.skeletonJson = json;
       sd.atlasText = atlas;
       sd.textureNames = pageNames;
-      sd.textures = await Promise.all(pageNames.map(n => texture(dir + n.replace(/\.png$/i, ".webp"))));
+      // a model with a "screen" or "multiply" slot needs premultiplied pictures (cdn.ts texturePma); the others keep the plain ones
+      const blended = ((json as { slots?: { blend?: string }[] }).slots || []).some(s => s.blend === "screen" || s.blend === "multiply");
+      const load = blended ? texturePma : texture;
+      sd.textures = await Promise.all(pageNames.map(n => load(dir + n.replace(/\.png$/i, ".webp"))));
+      if (blended) pma.add(sd);
       return sd;
     })();
     models.set(base, p);
@@ -34,8 +45,7 @@ export async function spineNode(base: string, anim: string, parent: Node): Promi
   n.layer = parent.layer;
   n.addComponent(UITransform);
   const s = n.addComponent(sp.Skeleton);
-  s.skeletonData = await spineData(base);
-  s.premultipliedAlpha = false;
+  setModel(s, await spineData(base));
   s.setAnimation(0, anim, true);
   parent.addChild(n);
   return s;
