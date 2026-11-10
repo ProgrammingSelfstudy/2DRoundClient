@@ -54,7 +54,7 @@ def group_of(path):
         return "tips"
     if path.startswith("resource/herolibrary/"):  # the hero library (图鉴): its atlas and window pieces
         return "herolibrary"
-    if path.startswith("resource/bigbg/partnercard/"):  # a hero's card in the library list: partnercard_<bid>
+    if path.startswith("resource/bigbg/partnercard/"):  # a hero's card in the library list: partnercard_<bid>  # NOT in the build command since dev47: the package's cards do not match their heroes (partnercard_10502 "艾斯" is a picture of Luffy); the original downloads the real ones at run time
         return "partnercard"
     if path.startswith("resource/form/"):  # the formation window: formation icons, the slot frames
         return "form"
