@@ -8,7 +8,7 @@ import { atlasFrame, hasFile, loadJson, spriteFrame } from "./cdn";
 import { listed } from "./herofilter";
 import type { PartnerTable } from "./herocell";
 import { LNode, buildLayout, opaqueBase } from "./ui";
-import { W, H } from "./loginpage";
+import { W, H } from "./design";
 import { spineNode } from "./spine";
 
 type Row = PartnerTable["base"][string];

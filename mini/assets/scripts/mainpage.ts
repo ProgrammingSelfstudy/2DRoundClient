@@ -3,17 +3,17 @@
 import { Label, Mask, Node, Sprite, UITransform } from "cc";
 import { loadJson, spriteFrame } from "./cdn";
 import { LNode, buildLayout } from "./ui";
-import { W, H } from "./loginpage";
+import { W, H } from "./design";
 import { IconBar, buildIconBar } from "./iconbar";
 import { spineNode } from "./spine";
-import type { City } from "./shared/city";
+import type { Assets, Role } from "./store";
 
 const num = (v: unknown) => {
   const n = Number(v ?? 0);
   return n >= 1e8 ? `${(n / 1e8).toFixed(1)}亿` : n >= 1e4 ? `${Math.floor(n / 1e4)}万` : String(n);
 };
 
-export interface MainPage { root: Node; icons: IconBar; setCity(c: City): void; select(tab: number): void; onTab(f: (tab: number) => void): void }
+export interface MainPage { root: Node; icons: IconBar; setRole(r: Role): void; setAssets(a: Assets): void; select(tab: number): void; onTab(f: (tab: number) => void): void }
 
 export async function buildMainPage(canvas: Node): Promise<MainPage> {
   const layout = await loadJson<LNode>("layouts/mainui/mainui_view.json");
@@ -79,23 +79,20 @@ export async function buildMainPage(canvas: Node): Promise<MainPage> {
     select,
     icons,
     onTab: f => { handler = f; },
-    setCity(c) {
-      const r = (c.role ?? {}) as Record<string, unknown>;
-      const a = (c.assets ?? {}) as Record<string, unknown>;
-      if (label("name_label")) label("name_label")!.string = String(r.name ?? "");
-      if (label("lev_label")) label("lev_label")!.string = String(r.lev ?? "");
-      icons.setPushed((c.icons ?? []) as number[]);
-      icons.setLevel(Number(new URLSearchParams(location.search).get("lev") ?? r.lev ?? 0)); // ?lev= is a dev override to see higher-level icons
+    setRole(r) {
+      if (label("name_label")) label("name_label")!.string = r.name;
+      if (label("lev_label")) label("lev_label")!.string = String(r.lev);
       if (label("fight_label")) label("fight_label")!.string = num(r.power);
-      // the bar shows three currencies (icons of items 2, 3 and 41); which 10302 field the third is has not been matched to the original yet
+      vipLabel.string = r.vipLev > 0 ? String(r.vipLev) : "";
+      spriteFrame(`icons/head/${r.faceId}.webp`).then(sf => { headSprite.spriteFrame = sf; }, () => {}); // a face_id with no picture keeps the empty circle
+      const bar = by.get("exp_bar")?.getComponent(Sprite);
+      if (bar && r.expMax > 0) bar.fillRange = Math.min(1, r.exp / r.expMax);
+    },
+    // the bar shows three currencies (icons of items 2, 3 and 41); which 10302 field the third is has not been matched to the original yet
+    setAssets(a) {
       label("wealth_label_1")!.string = num(a.coin);
       label("wealth_label_2")!.string = num(a.gold);
-      label("wealth_label_3")!.string = num(a.hero_exp);
-      vipLabel.string = Number(r.vip_lev ?? 0) > 0 ? String(r.vip_lev) : "";
-      spriteFrame(`icons/head/${r.face_id}.webp`).then(sf => { headSprite.spriteFrame = sf; }, () => {}); // a face_id with no picture keeps the empty circle
-      const max = Number(r.exp_max ?? 0), cur = Number(r.exp ?? 0);
-      const bar = by.get("exp_bar")?.getComponent(Sprite);
-      if (bar && max > 0) bar.fillRange = Math.min(1, cur / max);
+      label("wealth_label_3")!.string = num(a.heroExp);
     },
   };
 }

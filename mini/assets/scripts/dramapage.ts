@@ -4,7 +4,7 @@
 import { Color, Graphics, HorizontalTextAlignment, Label, Mask, Node, Sprite, UITransform, VerticalTextAlignment } from "cc";
 import { loadJson, spriteFrame } from "./cdn";
 import { LNode, buildLayout, blockInput } from "./ui";
-import { W, H } from "./loginpage";
+import { W, H, FIRST_STAGE, chapterMap } from "./design";
 import type { Msg } from "./shared/proto/codec";
 
 // id -> [name, unit id, shown rewards [item, count], per-minute rewards [item, count], level limit, next stage], from tables/dungeons.json
@@ -14,7 +14,7 @@ type ItemTable = { [id: string]: [string, number, number, number] };
 export type BossAction = "next" | "fight" | "level";
 export interface DramaPage { root: Node; setDrama(d: Msg | undefined, roleLev: number): void; show(on: boolean): void; onBoss(f: (a: BossAction) => void): void; onQuick(f: () => void): void; maxDunId(): number }
 
-const FIRST_STAGE = 10010; // what the original shows before anything has been passed (max_dun_id 0)
+
 
 export async function buildDramaPage(canvas: Node): Promise<DramaPage> {
   const [layout, stages, items, models] = await Promise.all([
@@ -31,7 +31,7 @@ export async function buildDramaPage(canvas: Node): Promise<DramaPage> {
   root.active = false;
   // behind the panel the original runs its hook battle on the chapter's map (BattleHookModel); here the map's two layers are laid the way the battle
   // scene lays them (far layer 736 up, ground 40 up), with nothing fighting on them yet. Only the first chapter's map is in the release.
-  const MAP_ID = 10008; // the first chapter (data_drama_world_info), as boot.ts passes to the fight
+  const MAP_ID = chapterMap(1); // the first chapter's, like the fight (see design.ts)
   const backdrop = new Node("hook_scene");
   backdrop.layer = canvas.layer;
   backdrop.addComponent(UITransform).setContentSize(W, H);

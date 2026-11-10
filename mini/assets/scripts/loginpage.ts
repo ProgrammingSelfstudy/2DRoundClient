@@ -4,8 +4,7 @@ import { Color, EditBox, Graphics, HorizontalTextAlignment, Label, Node, Sprite,
 import { loadJson, spriteFrame } from "./cdn";
 import { LNode, buildLayout } from "./ui";
 
-export const W = 720;
-export const H = 1280;
+import { W, H } from "./design";
 
 const rgba = (r: number, g: number, b: number, a = 255) => new Color(r, g, b, a);
 

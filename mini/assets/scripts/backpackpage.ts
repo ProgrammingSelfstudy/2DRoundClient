@@ -4,7 +4,7 @@ import { Color, HorizontalTextAlignment, Label, Node, Sprite, UITransform, Verti
 import { atlasFrame, loadJson, spriteFrame } from "./cdn";
 import { LNode, buildLayout, opaqueBase } from "./ui";
 import { spineNode } from "./spine";
-import { W, H } from "./loginpage";
+import { W, H } from "./design";
 
 interface Slot { base_id: number; quantity: number }
 type ItemTable = { [id: string]: [string, number, number, number, number] }; // name, icon, type, quality, sub type

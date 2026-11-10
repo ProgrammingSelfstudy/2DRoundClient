@@ -5,7 +5,7 @@
 import { Node, UITransform, sp } from "cc";
 import { hasFile } from "./cdn";
 import { spineData } from "./spine";
-import { W, H } from "./loginpage";
+import { W, H } from "./design";
 
 // res_up, res_down, up_action, down_action, play_type, scale (thousandths), h_scale, x_fix, y_fix, is_front, is_col_effect, spec_res_up
 type Entity = [string, string, string, string, number, number, number, number, number, number, number, string];

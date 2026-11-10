@@ -2,6 +2,7 @@
 // dummy (the first stage's pirate, H30012), with the skill's name, number and animation over the field. Several can be given, ?skilldemo=10401_4,10101_1.
 // It uses the scene's own play(), so what it shows is what a fight shows. Progress is kept in window.__skilldemo for scripted checks.
 import { loadJson } from "./cdn";
+import { chapterMap } from "./design";
 import { attackOf, effectInfo } from "./skillplan";
 import type { Fx } from "./skillplan";
 import type { BattleScene } from "./battlescene";
@@ -32,7 +33,7 @@ export async function runSkillDemo(scene: BattleScene, spec: string): Promise<vo
         { object_type: 3, group: 2, pos: THEIRS, object_bid: 101011, star: 1, object_name: "dummy", hp: HP, hp_max: HP },
       ],
     } as unknown as Msg;
-    await scene.start(opening, 10008);
+    await scene.start(opening, chapterMap(1));
     scene.show(true);
     await wait(1500); // the models load while it waits; one that does not load turns into a disc
     heroes.push({ hero, model, disc: scene.isPlaceholder(MINE), skills: skills.length });
@@ -79,7 +80,7 @@ export async function runSkillButtons(scene: BattleScene, hero: string): Promise
       { object_type: 3, group: 2, pos: THEIRS, object_bid: 101011, star: 1, object_name: "dummy", hp: HP, hp_max: HP },
     ],
   } as unknown as Msg;
-  await scene.start(opening, 10008);
+  await scene.start(opening, chapterMap(1));
   scene.show(true);
   scene.caption(`${hero}  点按钮放技能`);
 

@@ -5,7 +5,7 @@ import { loadJson, spriteFrame } from "./cdn";
 import { CELL, Hero, PartnerTable, heroCellMaker } from "./herocell";
 import { listed } from "./herofilter";
 import { LNode, buildLayout, opaqueBase } from "./ui";
-import { W, H } from "./loginpage";
+import { W, H } from "./design";
 
 const COLS = 5;
 

@@ -1,6 +1,6 @@
 // A short message over everything, for things that are not built yet ("暂未开放") or that the server refused.
 import { Color, HorizontalTextAlignment, Label, Node, UITransform, VerticalTextAlignment } from "cc";
-import { W } from "./loginpage";
+import { W } from "./design";
 
 let current: Node | null = null;
 let timer: ReturnType<typeof setTimeout> | undefined;

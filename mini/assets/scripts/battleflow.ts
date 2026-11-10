@@ -39,9 +39,9 @@ export class Feed {
 
 const MAX_ROUNDS = 15; // the round limit of a campaign fight (maxFightRounds of the server)
 
-// `opening` is the 20027 of the fight; resolves with the result (13016) when the last round has been played
+// `opening` is the 20027 of the fight; resolves with the result (13016) when the last round has been played. The caller clears the feed before
+// it asks for the fight, so nothing of an earlier fight is left in it and nothing of this one is thrown away.
 export async function runFight(session: Session, feed: Feed, scene: BattleScene, opening: Msg, mapId: number): Promise<Msg> {
-  feed.clear();
   await scene.start(opening, mapId);
   scene.show(true);
   session.send(20001, {});

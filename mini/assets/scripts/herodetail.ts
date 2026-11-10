@@ -5,7 +5,7 @@
 import { Color, Graphics, HorizontalTextAlignment, Label, Mask, Node, Sprite, UITransform, VerticalTextAlignment } from "cc";
 import { atlasFrame, hasFile, loadJson, spriteFrame } from "./cdn";
 import { LNode, buildLayout, opaqueBase } from "./ui";
-import { W, H } from "./loginpage";
+import { W, H } from "./design";
 import { spineNode } from "./spine";
 
 export interface HeroInfo { partner_id: number; bid: number; lev: number; star: number; power: number }

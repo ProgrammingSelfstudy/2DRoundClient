@@ -7,7 +7,7 @@ import { atlasFrame, loadJson, spriteFrame } from "./cdn";
 import { CELL, Hero, PartnerTable, heroCellMaker } from "./herocell";
 import { listed } from "./herofilter";
 import { LNode, buildLayout, opaqueBase } from "./ui";
-import { W, H } from "./loginpage";
+import { W, H } from "./design";
 
 export type Msg = { [key: string]: unknown };
 export interface Formation { formation_type: number; slots: (Hero | null)[] } // slots[0..5] are positions 1..6

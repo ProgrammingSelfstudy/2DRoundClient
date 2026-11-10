@@ -1,26 +1,14 @@
 // Boot: runs when the project scripts load. The scene holds a Canvas and a camera; the pages are built in code.
-// Flow: ask the server for the release -> load the manifest -> show the login page -> log in with the shared network layer.
+// Flow: ask the server for the release -> load the manifest -> show the login page -> log in with the shared network layer -> enter the city
+// (game.ts). What the game does after that is in the features (heroes.ts, campaign.ts, ...), not here.
 import { Canvas, Director, ResolutionPolicy, director, profiler, screen, view } from "cc";
+import type { App } from "./app";
 import { loadRelease } from "./cdn";
+import { enterCity } from "./game";
 import { buildLoginPage } from "./loginpage";
-import { buildMainPage } from "./mainpage";
-import { buildBackpackPage } from "./backpackpage";
-import { buildHeroPage } from "./heropage";
-import { buildHeroDetail } from "./herodetail";
-import { buildHeroLibrary } from "./herolibrary";
-import { buildFormPanel, type Formation } from "./formpanel";
-import type { Hero } from "./herocell";
-import { buildDramaPage } from "./dramapage";
-import { buildQuickWindow } from "./quickwindow";
-import { buildHookReward } from "./hookreward";
-import { buildMvpWindow } from "./battlemvp";
-import { buildFailWindow } from "./battlefail";
-import { spineNode } from "./spine";
-import { buildBattleScene } from "./battlescene";
-import { Feed, runFight } from "./battleflow";
-import { runSkillButtons, runSkillDemo } from "./skilldemo";
-import { buildCityScene } from "./citybg";
+import { Store } from "./store";
 import { toast } from "./toast";
+import { Windows } from "./windows";
 import { GameSocket } from "./shared/net";
 import { Session } from "./shared/session";
 import { enterGame, httpRegister, randomCredentials } from "./shared/login";
@@ -69,6 +57,8 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
 
   const sock = new GameSocket();
   const session = new Session(sock);
+  const store = new Store(session);
+  let windows: Windows | null = null; // set while the city is being built
   const url = `ws://${location.hostname}:8802/ws`;
   // `resume` is a login saved by an earlier visit: the account and the server's token, so a reload needs no password
   const run = async (resume?: { account: string; token: string }) => {
@@ -88,133 +78,20 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
       } catch { /* ignore */ }
       page.setStatus(`已进入游戏：${entered.name}，正在加载主城…`);
       const city = await loadMainCity(session, () => {});
-      const r = city.role as Record<string, unknown>;
-      page.setStatus(`${r.name}  Lv${r.lev}  战力 ${r.power}　英雄 ${city.partners.length}　任务 ${city.quests.length}`);
-      const cityScene = await buildCityScene(canvas); // under every page
-      screen.on("window-resize", cityScene.relayout);
-      // no building opens a page yet: say which one was tapped
-      cityScene.onBuilding(bd => toast(canvas, `${bd.name.replace("图标", "")}：暂未开放`));
-      const bag = await buildBackpackPage(canvas);
-      // dev convenience: ?bagdemo=1 fills the backpack with made-up stacks, to look at icons and paging without an account that owns items
-      const demo = q.get("bagdemo") === "1" ? [1, 3, 10001, 99955, 10002, 10003, 20001, 30001, 40001, 50001, 60001, 70001, 80001, 90001, 11001, 12001, 13001, 14001, 15001, 16001, 17001, 18001, 19001].map((base_id, i) => ({ base_id, quantity: 1 + i * 7 })) : null;
-      bag.setItems(demo ?? (city.items as unknown as { base_id: number; quantity: number }[]), city.equips as unknown as { base_id: number; quantity: number }[]);
-      const heroes = await buildHeroPage(canvas);
-      // dev convenience: ?herodemo=1 shows 60 made-up heroes, to look at the grid and scrolling
-      const bids = [10101, 10201, 10202, 10301, 10302, 10303, 10304, 10305, 10401, 10402, 10403, 10404, 10405, 10501, 10502, 10503, 10504, 10505, 10506, 10507];
-      const heroDemo = q.get("herodemo") === "1" ? Array.from({ length: 60 }, (_, i) => ({ partner_id: i + 1, bid: bids[i % bids.length], lev: 1 + i, star: 1 + (i % 5), power: 1000 * i })) : null;
-      heroes.setHeroes((heroDemo ?? city.partners) as unknown as Parameters<typeof heroes.setHeroes>[0], Number(city.heroBag?.num ?? 0));
-      // the list read at login goes stale (summons, grants): read it again when the hero page or the formation window opens
-      const refreshHeroes = async () => {
-        if (heroDemo) return;
-        try {
-          const r = await session.request(11025, {}, 11025);
-          city.partners = (r.partners as typeof city.partners | undefined) || [];
-          heroes.setHeroes(city.partners as unknown as Parameters<typeof heroes.setHeroes>[0], Number(r.num ?? 0));
-        } catch (e) { console.warn("hero list:", (e as Error).message); }
-      };
-      const library = await buildHeroLibrary(canvas); // built before the info window so that the window opens over it
-      const detail = await buildHeroDetail(canvas);
-      heroes.onTab(i => { if (i === 1) library.open(); else if (i !== 0) toast(canvas, "暂未开放"); });
-      // a card of the library opens the hero info window with the hero at its initial star (no attributes: it is nobody's hero)
-      library.onHero((bid, star) => { detail.open({ partner_id: 0, bid, lev: 1, star, power: 0 }, null); detail.root.setSiblingIndex(canvas.children.length); });
-      // tapping a hero opens its info window at once with what the list has, then fills the attribute list from 11063
-      heroes.onHero(async h => {
-        detail.open(h, null);
-        try { detail.setAttrs(h.partner_id, await session.request(11063, { partner_id: h.partner_id }, 11063)); } catch (e) { toast(canvas, (e as Error).message); }
-      });
-      const drama = await buildDramaPage(canvas);
-      drama.setDrama(city.drama, Number((city.role as Record<string, unknown>).lev ?? 0));
-      const battle = await buildBattleScene(canvas);
-      const feed = new Feed(session, [20002, 20004, 13016]);
-      battle.onTap(() => battle.show(false)); // no controls yet: a tap goes back to the stage page
-      // the boss button opens the formation window (11211, kind 0 is the campaign's); its fight button saves the formation (11212) and sends 13003
-      const go = async (a: "fight" | "next") => {
-        try {
-          session.last.delete(20027); // only a fight this click started counts
-          session.last.delete(13001);
-          const reply = a === "next" ? await session.request(13002, {}, 13002) : await session.request(13003, { is_auto: 0 }, 13003);
-          await session.quiet(300, 3000);
-          const opening = session.last.get(20027);
-          if (a === "fight" && opening) {
-            const result = await runFight(session, feed, battle, opening, 10008); // 10008: the first chapter's map (data_drama_world_info)
-            const win = Number(result.result) === 1;
-            await session.quiet(300, 2000);
-            const progress = session.last.get(13001);
-            if (progress) drama.setDrama(progress, Number((city.role as Record<string, unknown>).lev ?? 0)); // the new stage after a win
-            if (win) await mvp.open(result); else await fail.open(); // the win or the defeat window over the battle, then back to the stage page
-            battle.show(false);
-            return;
-          }
-          toast(canvas, String(reply.msg ?? ""));
-        } catch (e) { toast(canvas, (e as Error).message); }
-      };
-      const form = await buildFormPanel(canvas, text => toast(canvas, text));
-      const heroList = () => city.partners as unknown as Hero[];
-      const save = async (f: Formation): Promise<boolean> => {
-        const pos_info = f.slots.map((h, i) => (h ? { pos: i + 1, id: h.partner_id } : null)).filter(Boolean);
-        const reply = await session.request(11212, { type: 0, formation_type: f.formation_type, hallows_id: 0, pos_info }, 11212);
-        if (Number(reply.code) !== 1) toast(canvas, String(reply.msg ?? "保存失败"));
-        return Number(reply.code) === 1;
-      };
-      form.onSave(async f => { try { return await save(f); } catch (e) { toast(canvas, (e as Error).message); return false; } });
-      form.onFight(async f => {
-        try { if (!(await save(f))) return; } catch (e) { return toast(canvas, (e as Error).message); }
-        form.close();
-        await go("fight");
-      });
-      heroes.onEmbattle(async () => {
-        try { await refreshHeroes(); form.open(await session.request(11211, { type: 0 }, 11211), heroList(), false); } catch (e) { toast(canvas, (e as Error).message); }
-      });
-      drama.onBoss(async a => {
-        if (a === "level") return toast(canvas, "等级不足");
-        if (a === "next") return go("next");
-        try { await refreshHeroes(); form.open(await session.request(11211, { type: 0 }, 11211), heroList()); } catch (e) { toast(canvas, (e as Error).message); }
-      });
-      const main = await buildMainPage(canvas); // built after the pages so the top bar and the tabs stay on top of them
-      // the quick battle window sits over everything, the way the original's dialogue does
-      const quick = await buildQuickWindow(canvas);
-      session.on(13006, m => quick.setQuick(m)); // after a quick battle the server pushes the new count
-      const mvp = await buildMvpWindow(canvas); // 13016: the win window of a campaign fight
-      const fail = await buildFailWindow(canvas); // 13016 with result 2: the defeat window
-      if (q.get("faildemo") === "1") void fail.open(); // dev convenience: ?faildemo=1 opens the defeat window
-      const reward = await buildHookReward(canvas); // 13007: what a quick battle or a hook claim paid
-      session.on(13007, m => { quick.close(); reward.open(m); });
-      // dev convenience: ?rewarddemo=1 opens the reward window with a made-up quick battle that gains a level, to look at the bar and the item grid
-      // dev convenience: ?mvpdemo=1 opens the win window with a made-up result (a level gained, six rewards)
-      if (q.get("mvpdemo") === "1") void mvp.open({ result: 1, partner_hurt: 12345, partner_total_hurt: 20000, lev: 5, exp: 400, new_lev: 6, new_exp: 150, item_rewards: [1, 3, 10001, 10002, 10003, 20001].map((bid, i) => ({ bid, num: 100 * (i + 1) })) } as never);
-      if (q.get("rewarddemo") === "1") reward.open({ type: 2, time: 7200, old_lev: 5, new_lev: 6, old_exp: 400, new_exp: 150, vip_buff: 0, honor_buff: 0, items: [1, 3, 10001, 10002, 10003, 20001, 30001, 40001, 50001].map((bid, i) => ({ bid, num: 100 * (i + 1) })) } as never);
-      drama.onQuick(async () => {
-        try { quick.open(drama.maxDunId() || 10010, await session.request(13006, {}, 13006)); } catch (e) { toast(canvas, (e as Error).message); }
-      });
-      quick.onQuick(async () => {
-        try {
-          const reply = await session.request(13004, {}, 13004);
-          toast(canvas, String(reply.msg ?? ""));
-        } catch (e) { toast(canvas, (e as Error).message); }
-      });
-      main.setCity(city);
-      // tab 1 is the main city, 2 the heroes, 3 the backpack, 4 the stages; the other tabs have no page yet
-      // 10923: the server tells one activity icon opening or closing while the player is in the city
-      session.on(10923, m => main.icons.setOpen(Number(m.id), Number(m.status) !== 0));
-      main.icons.onIcon(name => toast(canvas, `${name}：暂未开放`));
-      main.onTab(t => { if (t === 2) void refreshHeroes(); detail.close(); form.close(); heroes.show(t === 2); bag.show(t === 3); drama.show(t === 4); });
-      // dev convenience: ?battledemo=1 stands the first battle's two models (hero 10401 star 4 = H30009, enemy 101011 = H30012) on the screen
-      if (q.get("battledemo") === "1") {
-        for (const [model, x] of [["H30009", -170], ["H30012", 170]] as const) {
-          spineNode(`spine/hero/${model}/stand2`, "stand2", canvas).then(sk => sk.node.setPosition(x, -60, 0), e => console.warn(`battledemo ${model}: ${(e as Error).message}`));
-        }
-      }
-      // dev convenience: ?skilldemo=10401_4 plays every active skill of that hero (bid_star) against a dummy; see skilldemo.ts
-      const skillDemo = q.get("skilldemo");
-      if (skillDemo) void runSkillDemo(battle, skillDemo).catch(e => console.warn(`skilldemo: ${(e as Error).message}`));
-      // dev convenience: ?skillbtn=70501_5 puts a button per skill of that hero over the page to cast them by hand
-      const skillBtn = q.get("skillbtn");
-      if (skillBtn) void runSkillButtons(battle, skillBtn).catch(e => console.warn(`skillbtn: ${(e as Error).message}`));
+      store.load(city);
+      page.setStatus(`${store.role.name}  Lv${store.role.lev}  战力 ${store.role.power}　英雄 ${city.partners.length}　任务 ${city.quests.length}`);
+      windows = new Windows(canvas);
+      const tips = windows.layer("tip");
+      const app: App = { session, store, windows, query: q, toast: text => toast(tips, text) };
+      await enterCity(app);
+      windows = null; // the game stands: nothing to take down
       page.hide(); // the login page gives way to the main city
     } catch (e) {
       console.warn(`login flow: ${(e as Error).stack ?? e}`);
       // the failing step is already on the page; a saved login the server refused is not tried again
       if (resume) try { localStorage.removeItem("session"); } catch { /* ignore */ }
+      windows?.destroy(); // a city that was only half built is taken off again, so the next try starts from nothing
+      windows = null;
     } finally {
       page.setBusy(false);
     }

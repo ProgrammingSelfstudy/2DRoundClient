@@ -5,7 +5,7 @@
 import { Color, Graphics, HorizontalTextAlignment, Label, Node, Sprite, Tween, UITransform, Vec3, VerticalTextAlignment, sp, tween } from "cc";
 import { hasFile, loadJson, spriteFrame } from "./cdn";
 import { spineData } from "./spine";
-import { W, H } from "./loginpage";
+import { W, H } from "./design";
 import { attackOf, backTarget, effectInfo, hitEvent, hitShare, movePlan, moveTarget, shakeSteps } from "./skillplan";
 import type { Cell, Fx, MovePlan } from "./skillplan";
 import { FxList, entitiesOf, playEntity } from "./skillfx";

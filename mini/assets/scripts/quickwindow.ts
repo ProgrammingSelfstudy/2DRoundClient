@@ -4,7 +4,7 @@
 import { Color, HorizontalTextAlignment, Label, Mask, Node, Sprite, UITransform, VerticalTextAlignment } from "cc";
 import { atlasFrame, loadJson, spriteFrame } from "./cdn";
 import { LNode, buildLayout, blockInput } from "./ui";
-import { W, H } from "./loginpage";
+import { W, H } from "./design";
 import type { Msg } from "./shared/proto/codec";
 
 type StageTable = { [id: string]: [string, number, number[][], number[][], number, number, number[][]] };

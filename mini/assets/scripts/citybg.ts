@@ -3,7 +3,7 @@
 // bottom-left corners, layer 4 hung from the top-left corner at (0,1280). Drag sideways to look around. Drawn bottom to top: 4, 3, 2.
 import { Color, HorizontalTextAlignment, Label, Node, Sprite, UITransform, VerticalTextAlignment, view } from "cc";
 import { atlasFrame, loadJson, spriteFrame } from "./cdn";
-import { W, H } from "./loginpage";
+import { W, H } from "./design";
 
 const SCENE_H = 1280;
 const SCENE_W = 2012; // the widest layer

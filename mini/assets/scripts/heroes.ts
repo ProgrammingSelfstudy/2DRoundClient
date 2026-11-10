@@ -1,0 +1,41 @@
+// The heroes: the hero page of the second tab, the hero info window (11063 fills its attributes) and the library.
+import { App, attempt } from "./app";
+import type { FormationFeature } from "./formation";
+import { buildHeroDetail } from "./herodetail";
+import { buildHeroLibrary } from "./herolibrary";
+import { HeroPage, buildHeroPage } from "./heropage";
+import type { Win } from "./windows";
+
+export interface HeroFeature { page: Win<HeroPage> }
+
+export function heroFeature(app: App, formation: FormationFeature): HeroFeature {
+  const { session, store, windows } = app;
+
+  const detail = windows.define("full", buildHeroDetail, w => w.close());
+
+  const library = windows.define("full", async parent => {
+    const lib = await buildHeroLibrary(parent);
+    // a card of the library opens the hero info window with the hero at its initial star (no attributes: it is nobody's hero)
+    lib.onHero((bid, star) => attempt(app, async () => (await detail.front()).open({ partner_id: 0, bid, lev: 1, star, power: 0 }, null)));
+    return lib;
+  }, w => w.close());
+
+  const page = windows.define("page", async parent => {
+    const p = await buildHeroPage(parent);
+    store.follow("heroes", () => p.setHeroes(store.heroes, store.heroCap));
+    p.onTab(i => {
+      if (i === 1) attempt(app, async () => (await library.front()).open());
+      else if (i !== 0) app.toast("暂未开放");
+    });
+    // tapping a hero opens its info window at once with what the list has, then fills the attribute list from 11063
+    p.onHero(h => attempt(app, async () => {
+      const d = await detail.front();
+      d.open(h, null);
+      d.setAttrs(h.partner_id, await session.request(11063, { partner_id: h.partner_id }, 11063) as never);
+    }));
+    p.onEmbattle(() => attempt(app, () => formation.open()));
+    return p;
+  }, w => w.show(false));
+
+  return { page };
+}
