@@ -2,7 +2,7 @@
 // window's own background, the hero's model (Spine, when the release carries it), name, camp, stars and power, and the attribute list the
 // server sends in 11063 in the tab area, or the hero's skills (name, picture, text) from the client's own table. The other tabs (equipment, talent)
 // have no page yet.
-import { Color, Graphics, HorizontalTextAlignment, Label, Mask, Node, Sprite, SpriteFrame, UITransform, VerticalTextAlignment } from "cc";
+import { BlockInputEvents, Color, Graphics, HorizontalTextAlignment, Label, Mask, Node, Sprite, SpriteFrame, UITransform, VerticalTextAlignment } from "cc";
 import { atlasFrame, hasFile, loadJson, spriteFrame } from "./cdn";
 import { LNode, buildLayout, opaqueBase } from "./ui";
 import { dragScroll } from "./widgets";
@@ -21,6 +21,7 @@ interface SkillInfo { h: { [heroStar: string]: number[] }; k: { [skill: string]:
 interface Growth { lev: number[][][]; brach: { [key: string]: [number, number, number] }; base: { [bid: string]: [number, number, string] }; star: { [key: string]: number } }
 const CAREER: { [type: number]: string } = { 0: "无", 2: "法师", 3: "战士", 4: "坦克", 5: "辅助" }; // HeroConst.CareerName
 const COMMON = "ui/common/common.json";
+const GOLD_TITLE = new Color(255, 232, 170, 255); // the headings of the attribute window
 const CAMP: { [camp: number]: string } = { 1: "common_90067", 2: "common_90068", 3: "common_90069", 4: "common_90070", 5: "common_90079", 7: "common_900072" };
 // the 11063 fields as the original's attribute panel lists them (HeroTipsAttrPanel key lists; names from Config.AttrData.data_key_to_name), two to a row
 const ATTRS: [string, string][] = [
@@ -37,7 +38,7 @@ const shown = (key: string, v: number) => (PERCENT.has(key) ? `${v / 10}%` : Str
 export interface HeroDetail { root: Node; open(h: HeroInfo, attrs: Attrs | null): void; setAssets(a: { coin: number; heroExp: number }): void; setAttrs(partnerId: number, attrs: Attrs): void; close(): void; onClose(f: () => void): void; onLevelUp(f: (h: HeroInfo) => void): void; onPreview(f: (h: HeroInfo) => void): void; onSwitch(f: (dir: number, from: HeroInfo) => void): void; onNotice(f: (text: string) => void): void }
 
 export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
-  const [win, table, models, skills, trainTree, growth, items, equipTree] = await Promise.all([
+  const [win, table, models, skills, trainTree, growth, items, equipTree, attrTree] = await Promise.all([
     loadJson<LNode>("layouts/hero/hero_main_info_window.json"),
     loadJson<PartnerTable>("tables/partners.json"),
     loadJson<Models>("tables/battle_models.json"),
@@ -46,6 +47,7 @@ export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
     loadJson<Growth>("tables/hero_growth.json"),
     loadJson<{ [id: string]: [string, number] }>("tables/items.json"),
     loadJson<LNode>("layouts/hero/hero_main_tab_equip_panel.json"),
+    loadJson<LNode>("layouts/hero/hero_tips_attr_panel.json"),
   ]);
   const built = await buildLayout(win, canvas, {
     // the camp backdrop (a picture by camp the release does not carry), the resonance timer, the reset button (the Lua hides it too) and the voice area
@@ -118,10 +120,6 @@ export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
   powerLabel.color = new Color(255, 232, 170, 255);
   powerLabel.outlineColor = new Color(70, 30, 10, 255);
   const container = node("tab_container");
-  const list = new Node("attrs");
-  list.layer = container.layer;
-  list.addComponent(UITransform).setContentSize(680, 360);
-  container.addChild(list);
 
   // The equipment panel (HeroMainTabEquipPanel, layout hero/hero_main_tab_equip_panel.csb) hangs on lay_hero, centred on it: four equipment slots (weapon, shoes,
   // clothes, hat) with the empty slot's silhouette, two locked slots (the level of the first, the star of the second) and the buttons "一键穿戴" / "一键卸下".
@@ -159,17 +157,77 @@ export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
   });
   for (const name of ["key_up_btn", "discharge_btn"]) eq(name).on(Node.EventType.TOUCH_END, () => noticeFn("暂未开放"));
 
-  let current = 0, closeFn = () => {};
+  let current = 0, shownBid = 0, closeFn = () => {};
 
-  const drawAttrs = (attrs: Attrs | null) => {
-    list.removeAllChildren();
-    // two columns of name / value, filled left to right
-    ATTRS.forEach(([key, title], i) => {
-      const col = i % 2, row = Math.floor(i / 2);
-      const x = -170 + col * 340, y = 165 - row * 36;
-      label(list, title, x - 60, y, HorizontalTextAlignment.LEFT);
-      label(list, attrs && attrs[key] !== undefined ? shown(key, Number(attrs[key])) : "-", x + 90, y, HorizontalTextAlignment.RIGHT);
+  // The full attribute window (HeroTipsAttrPanel, layout hero/hero_tips_attr_panel.csb): base attributes, special attributes (three rows of four, one of
+  // seven), each with its picture (PathTool.AttrIcon), name and value, and the "加成项" block at the bottom whose button folds the lower half away.
+  // Nothing of the guild skills, the faith or the demon tree is read by this client yet, so those rows show their "nothing yet" values.
+  const attrBuilt = await buildLayout(attrTree, root, {});
+  const attrPopup = attrBuilt.root;
+  attrPopup.active = false;
+  const attrNode = (name: string) => attrBuilt.byName.get(name)!;
+  const dim = attrNode("background");
+  dim.addComponent(BlockInputEvents);
+  const dg = dim.addComponent(Graphics);
+  dg.fillColor = new Color(0, 0, 0, 170);
+  dg.rect(-W, -H, W * 2, H * 2);
+  dg.fill();
+  dim.on(Node.EventType.TOUCH_END, () => { attrPopup.active = false; });
+  const ATTR_KEYS = [["atk", "hp", "def", "speed"], ["crit_rate", "crit_ratio", "hit_magic", "dodge_magic"], ["tenacity", "hit_rate", "res", "dodge_rate"], ["cure", "be_cure", "dam", "dam_p", "dam_s", "res_p", "res_s"]];
+  const ATTR_ICON: { [key: string]: string } = {
+    crit_ratio: "common_90039", def: "common_90023", dodge_magic: "common_90037", hp: "common_90022", crit_rate: "common_90043", be_cure: "common_90021_6", dam: "common_90021_7",
+    dodge_rate: "common_90021_4", hit_rate: "common_90021_2", atk: "common_90021", res_s: "common_90021_3", hit_magic: "common_90040", tenacity: "common_90021_1",
+    dam_s: "common_90021", dam_p: "common_90021", res_p: "common_90021_3", speed: "common_90038", res: "common_90021_3", cure: "common_90021_5",
+  };
+  const ATTR_NAME = new Map(ATTRS);
+  const CAMP_NAME: { [camp: number]: string } = { 0: "无", 1: "海贼新星", 2: "草帽联盟", 3: "强者", 4: "海军", 5: "五皇团", 7: "传奇" }; // HeroConst.CampName
+  const style = (n: Node, size: number, color: Color, align: HorizontalTextAlignment) => {
+    const l = n.getComponent(Label)!;
+    l.fontSize = size; l.lineHeight = size + 4; l.color = color; l.horizontalAlign = align; l.overflow = Label.Overflow.NONE;
+    return l;
+  };
+  const WHITE = new Color(255, 255, 255, 255);
+  attrNode("base_attr").getComponent(Label)!.string = "基本属性";
+  attrNode("special_attr").getComponent(Label)!.string = "特殊属性";
+  for (const name of ["base_attr", "special_attr"]) style(attrNode(name), 26, GOLD_TITLE, HorizontalTextAlignment.CENTER);
+  ATTR_KEYS.forEach((keys, pi) => {
+    const panel = attrNode(`attr_panel_${pi + 1}`);
+    keys.forEach((key, i) => {
+      const icon = panel.getChildByName(`attr_icon${i + 1}`)!;
+      atlasFrame(COMMON, `${ATTR_ICON[key] ?? "common_90037"}.png`).then(sf => { const sp = icon.getComponent(Sprite)!; if (sp.isValid) sp.spriteFrame = sf; }, () => {});
+      style(panel.getChildByName(`attr_key${i + 1}`)!, 24, WHITE, HorizontalTextAlignment.LEFT).string = ATTR_NAME.get(key) ?? key;
+      style(panel.getChildByName(`attr_label${i + 1}`)!, 24, WHITE, HorizontalTextAlignment.RIGHT);
     });
+  });
+  const bottom = attrNode("bottom_panel");
+  const bottomRows = [1, 2, 3, 4].map(i => ({ key: style(bottom.getChildByName(`attr_key${i}`)!, 24, WHITE, HorizontalTextAlignment.LEFT), value: style(bottom.getChildByName(`attr_label${i}`)!, 24, WHITE, HorizontalTextAlignment.RIGHT) }));
+  style(bottom.getChildByName("title_name")!, 26, GOLD_TITLE, HorizontalTextAlignment.CENTER).string = "加成项";
+  for (let i = 1; i <= 4; i++) bottom.getChildByName(`goto_btn_${i}`)!.on(Node.EventType.TOUCH_END, () => noticeFn("暂未开放"));
+  // the fold button: expanded, its arrow points up (the Lua's rotation -90) and the lower two attribute rows and the block show; folded it points down and
+  // the background is 242 shorter with the block moved up
+  const panelBg = attrNode("panel_bg"), bottomBtn = bottom.getChildByName("bottom_btn")!;
+  const bgSize = panelBg.getComponent(UITransform)!.contentSize.clone(), bottomY = bottom.position.y;
+  let folded = false;
+  const fold = (on: boolean) => {
+    folded = on;
+    bottomBtn.angle = on ? -90 : 90;
+    panelBg.getComponent(UITransform)!.setContentSize(bgSize.width, bgSize.height - (on ? 242 : 0));
+    bottom.setPosition(bottom.position.x, bottomY + (on ? 242 : 0), 0);
+    attrNode("attr_panel_3").active = !on;
+    attrNode("attr_panel_4").active = !on;
+  };
+  bottomBtn.on(Node.EventType.TOUCH_END, () => fold(!folded));
+  fold(false);
+  const drawAttrs = (attrs: Attrs | null, bid: number) => {
+    ATTR_KEYS.forEach((keys, pi) => keys.forEach((key, i) => {
+      attrNode(`attr_panel_${pi + 1}`).getChildByName(`attr_label${i + 1}`)!.getComponent(Label)!.string = attrs && attrs[key] !== undefined ? shown(key, Number(attrs[key])) : "-";
+    }));
+    const base = growth.base[String(bid)];
+    const career = CAREER[base?.[0] ?? 4] ?? "无", camp = CAMP_NAME[table.base[String(bid)]?.[1] ?? 0] ?? "无";
+    bottomRows[0].key.string = `公会技能等级-${career}`; bottomRows[0].value.string = "lv.0";
+    bottomRows[1].key.string = `公会PVP等级-${career}`; bottomRows[1].value.string = "lv.0(技能lv.0)";
+    bottomRows[2].key.string = `${camp}之信念等级`; bottomRows[2].value.string = "未解锁";
+    bottomRows[3].key.string = "恶魔树增幅阶段"; bottomRows[3].value.string = "未解锁";
   };
 
   // the skill page: a clipped viewport with one row per skill (picture, name, text), dragged up and down
@@ -254,7 +312,6 @@ export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
     root.addChild(n);
     return n;
   };
-  const attrPopup = popup(700, 400, list);
   const skillPopup = popup(700, 400, skillView);
 
   const GOLD = new Color(223, 204, 146, 255);
@@ -494,7 +551,8 @@ export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
       // the original (HeroMainInfoWindow.updateSpine) plays the model's "show" action, a large pose, from 240 below the node; stand2 is the fallback
       const pose = hasFile(`spine/hero/${model}/show.json`) ? "show" : "stand2";
       if (model) spineNode(`spine/hero/${model}/${pose}`, pose, modelNode).then(sk => sk.node.setPosition(0, -240, 0), e => console.warn(`hero info ${model}:`, (e as Error).message));
-      drawAttrs(attrs);
+      shownBid = h.bid;
+      drawAttrs(attrs, h.bid);
       drawBase(attrs);
       drawTrain(h);
       drawSkillIcons(h);
@@ -503,7 +561,7 @@ export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
       curStar = h.star;
       root.active = true;
     },
-    setAttrs(partnerId, attrs) { if (partnerId === current) { drawAttrs(attrs); drawBase(attrs); } },
+    setAttrs(partnerId, attrs) { if (partnerId === current) { drawAttrs(attrs, shownBid); drawBase(attrs); } },
     setAssets(a) { wealth = a; if (root.active && shownHero) drawTrain(shownHero); },
     close,
     onClose(f) { closeFn = f; },

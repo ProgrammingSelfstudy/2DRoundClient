@@ -30,7 +30,7 @@ from skel_to_json import convert  # noqa: E402
 
 LAYOUTS = {"boot": ["login/user_panel.csb"], "mainui": ["mainui/mainui_view.csb"],
            "backpack": ["backpack/backpack_window.csb", "backpack/goods_item.csb"],
-           "hero": ["hero/hero_bag_window.csb", "hero/hero_main_info_window.csb", "hero/hero_main_tab_train_panel.csb", "hero/hero_main_tab_equip_panel.csb"], "herolibrary": ["hero/hero_library_main_window.csb", "hero/hero_library_main_item.csb", "hero/hero_library_info_window.csb"], "form": ["hero/form_go_fight_panel.csb"], "battle": ["battle/battle_mvp_view.csb", "battle/battle_fail_view.csb"], "battledrama": ["battle/battle_button_list.csb", "battledrama/battle_drama_quick_battle_windows.csb", "battledrama/battle_drama_hook_reward_windows.csb"]}  # group -> csb paths (under the recovered csb directory) shipped as layouts
+           "hero": ["hero/hero_bag_window.csb", "hero/hero_main_info_window.csb", "hero/hero_main_tab_train_panel.csb", "hero/hero_main_tab_equip_panel.csb", "hero/hero_tips_attr_panel.csb"], "herolibrary": ["hero/hero_library_main_window.csb", "hero/hero_library_main_item.csb", "hero/hero_library_info_window.csb"], "form": ["hero/form_go_fight_panel.csb"], "battle": ["battle/battle_mvp_view.csb", "battle/battle_fail_view.csb"], "battledrama": ["battle/battle_button_list.csb", "battledrama/battle_drama_quick_battle_windows.csb", "battledrama/battle_drama_hook_reward_windows.csb"]}  # group -> csb paths (under the recovered csb directory) shipped as layouts
 
 
 def group_of(path):
@@ -50,6 +50,8 @@ def group_of(path):
         return "hero"
     if path.startswith("resource/skillicon/"):  # the skill pictures of the hero info window's skill page
         return "skillicon"
+    if path.startswith("resource/tips/"):  # the tips atlas: the panel background of the hero attribute window
+        return "tips"
     if path.startswith("resource/herolibrary/"):  # the hero library (图鉴): its atlas and window pieces
         return "herolibrary"
     if path.startswith("resource/bigbg/partnercard/"):  # a hero's card in the library list: partnercard_<bid>
@@ -112,6 +114,8 @@ def logical_image(path, group):
         return "ui/herobag/" + name
     if group == "hero":
         return "ui/hero/" + name
+    if group == "tips":
+        return "ui/tips/" + name
     if group == "skillicon":
         return "icons/skill/" + name
     if group == "herolibrary":
