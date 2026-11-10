@@ -469,6 +469,59 @@ export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
   // the slot 1 normal attack is not shown; the skill_container is 630 wide and the icons sit 116 apart, centred
   const skillRow = tp("skill_container");
   const skillNodes: Node[] = [];
+  // tapping a skill icon opens that one skill's tip above the icon, as the original does: picture, name and level, type, text, and the gold line of how
+  // it opens; a tap anywhere closes it. (The original also shows cooldown/release rounds and the state explanation; the client table has neither.)
+  let skillTip: Node | null = null;
+  const showSkillTip = (id: number, anchor: Node) => {
+    skillTip?.destroy();
+    const [name, text, icon, passive, note] = skills!.k[String(id)];
+    const TW = 600, textW = 470, lines = Math.max(1, Math.ceil(text.length / 21));
+    const TH = 130 + lines * 28 + (note ? 34 : 0);
+    const tip = new Node("skill_tip");
+    tip.layer = root.layer;
+    tip.addComponent(UITransform).setContentSize(W, H);
+    tip.setPosition(W / 2, H / 2, 0);
+    tip.on(Node.EventType.TOUCH_END, () => { tip.destroy(); if (skillTip === tip) skillTip = null; });
+    const at = root.getComponent(UITransform)!.convertToNodeSpaceAR(anchor.worldPosition);
+    const cy = at.y + 59.5 * 0.8 + 16 + TH / 2; // the tip's centre, in the root's space (the tip node's centre is at H / 2)
+    const box = new Node("box");
+    box.layer = root.layer;
+    box.addComponent(UITransform).setContentSize(TW, TH);
+    const g = box.addComponent(Graphics);
+    g.fillColor = new Color(52, 40, 32, 240);
+    g.roundRect(-TW / 2, -TH / 2, TW, TH, 12);
+    g.fill();
+    g.strokeColor = new Color(120, 96, 70, 255);
+    g.lineWidth = 3;
+    g.roundRect(-TW / 2, -TH / 2, TW, TH, 12);
+    g.stroke();
+    tip.addChild(box);
+    const lev = id % 100 || 1;
+    const pic = new Node("icon");
+    pic.layer = root.layer;
+    pic.addComponent(UITransform).setContentSize(96, 96);
+    pic.setPosition(-TW / 2 + 70, TH / 2 - 70, 0);
+    const ps = pic.addComponent(Sprite);
+    ps.sizeMode = Sprite.SizeMode.CUSTOM;
+    if (icon && hasFile(`icons/skill/${icon}.webp`)) spriteFrame(`icons/skill/${icon}.webp`).then(sf => { if (ps.isValid) ps.spriteFrame = sf; }, () => {});
+    box.addChild(pic);
+    const put = (l: Label, top: number) => { l.node.getComponent(UITransform)!.setAnchorPoint(0, 1); l.node.setPosition(-TW / 2 + 140, TH / 2 - top, 0); return l; };
+    const white = (l: Label) => { l.color = new Color(255, 255, 255, 255); l.enableOutline = false; return l; };
+    white(put(label(box, `${name}  Lv.${lev}`, 0, 0, HorizontalTextAlignment.LEFT, 26, textW), 24));
+    const kind = white(put(label(box, `类型：${passive ? "被动技能" : "主动技能"}`, 0, 0, HorizontalTextAlignment.LEFT, 22, textW), 66));
+    kind.color = new Color(150, 220, 120, 255);
+    const body = white(put(label(box, text, 0, 0, HorizontalTextAlignment.LEFT, 22, textW), 108));
+    body.overflow = Label.Overflow.RESIZE_HEIGHT;
+    body.lineHeight = 28;
+    if (note) {
+      const n = put(label(box, note, 0, 0, HorizontalTextAlignment.LEFT, 20, textW), 108 + lines * 28 + 6);
+      n.color = new Color(248, 194, 60, 255);
+      n.enableOutline = false;
+    }
+    box.setPosition(0, cy - H / 2, 0);
+    root.addChild(tip);
+    skillTip = tip;
+  };
   const drawSkillIcons = (h: HeroInfo) => {
     skillNodes.forEach(n => n.destroy());
     skillNodes.length = 0;
@@ -512,7 +565,7 @@ export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
       num.enableOutline = false;
       const locked = i + 2 > open; // the slot number is the position in the star's skill list, the normal attack being 1
       if (locked) for (const sp of [fs, ps, bs]) sp.grayscale = true;
-      item.on(Node.EventType.TOUCH_END, () => { skillPopup.active = true; skillPopup.setSiblingIndex(root.children.length); });
+      item.on(Node.EventType.TOUCH_END, () => showSkillTip(id, item));
       skillRow.addChild(item);
       skillNodes.push(item);
     });
