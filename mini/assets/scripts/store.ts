@@ -37,7 +37,7 @@ export class Store {
     session.on(10306, m => this.set("role", () => { this.role = { ...this.role, power: num(m.power) }; }));
     session.on(11025, m => this.set("heroes", () => this.readHeroes(m)));
     session.on(11002, m => this.set("heroes", () => { // one hero changed (level, break): replace it in the list
-      const h = { partner_id: num(m.partner_id), bid: num(m.bid), lev: num(m.lev), star: num(m.star), power: num(m.power) };
+      const h = { partner_id: num(m.partner_id), bid: num(m.bid), lev: num(m.lev), star: num(m.star), power: num(m.power), break_lev: num(m.break_lev) };
       const i = this.heroes.findIndex(x => x.partner_id === h.partner_id);
       if (i >= 0) this.heroes[i] = h; else this.heroes.push(h);
     }));
@@ -120,7 +120,7 @@ export class Store {
 
   private readHeroes(m: Msg) {
     const list = (m.partners as Msg[] | undefined) || [];
-    this.heroes = list.map(p => ({ partner_id: num(p.partner_id), bid: num(p.bid), lev: num(p.lev), star: num(p.star), power: num(p.power) }));
+    this.heroes = list.map(p => ({ partner_id: num(p.partner_id), bid: num(p.bid), lev: num(p.lev), star: num(p.star), power: num(p.power), break_lev: num(p.break_lev) }));
     this.heroCap = num(m.num);
   }
 

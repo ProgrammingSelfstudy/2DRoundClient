@@ -30,7 +30,7 @@ from skel_to_json import convert  # noqa: E402
 
 LAYOUTS = {"boot": ["login/user_panel.csb"], "mainui": ["mainui/mainui_view.csb"],
            "backpack": ["backpack/backpack_window.csb", "backpack/goods_item.csb"],
-           "hero": ["hero/hero_bag_window.csb", "hero/hero_main_info_window.csb"], "herolibrary": ["hero/hero_library_main_window.csb", "hero/hero_library_main_item.csb", "hero/hero_library_info_window.csb"], "form": ["hero/form_go_fight_panel.csb"], "battle": ["battle/battle_mvp_view.csb", "battle/battle_fail_view.csb"], "battledrama": ["battle/battle_button_list.csb", "battledrama/battle_drama_quick_battle_windows.csb", "battledrama/battle_drama_hook_reward_windows.csb"]}  # group -> csb paths (under the recovered csb directory) shipped as layouts
+           "hero": ["hero/hero_bag_window.csb", "hero/hero_main_info_window.csb", "hero/hero_main_tab_train_panel.csb"], "herolibrary": ["hero/hero_library_main_window.csb", "hero/hero_library_main_item.csb", "hero/hero_library_info_window.csb"], "form": ["hero/form_go_fight_panel.csb"], "battle": ["battle/battle_mvp_view.csb", "battle/battle_fail_view.csb"], "battledrama": ["battle/battle_button_list.csb", "battledrama/battle_drama_quick_battle_windows.csb", "battledrama/battle_drama_hook_reward_windows.csb"]}  # group -> csb paths (under the recovered csb directory) shipped as layouts
 
 
 def group_of(path):
@@ -288,6 +288,11 @@ def main(assets, version, groups):
         from partners_table import table as partners
         lua = f"{assets}/source/restored-source/outputs/readable-source/lua/ePoCrKQkWA3vpiOwu2oNfOh02MOeNheW"
         put("tables/partners.json", json.dumps(partners(lua), ensure_ascii=False, separators=(",", ":")).encode(), "json", "icons-head", "partner_data.lua")
+
+    if "hero" in groups:  # what a level costs, the level caps, the career and the position text: the train panel of the hero info window
+        from hero_growth_table import table as hero_growth
+        lua = f"{assets}/source/restored-source/outputs/readable-source/lua/ePoCrKQkWA3vpiOwu2oNfOh02MOeNheW"
+        put("tables/hero_growth.json", json.dumps(hero_growth(lua), ensure_ascii=False, separators=(",", ":")).encode(), "json", "hero", "partner_data.lua")
 
     if "skillicon" in groups:  # each listed hero star's skills and what the skill page says of them
         from hero_skill_info_table import table as skill_info

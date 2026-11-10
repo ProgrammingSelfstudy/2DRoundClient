@@ -22,6 +22,7 @@ export function heroFeature(app: App, formation: FormationFeature, battle: Win<B
   const detail = windows.define("full", async parent => {
     const d = await buildHeroDetail(parent);
     d.onPreview(h => attempt(app, async () => (await preview.front()).open(h.bid, h.star)));
+    store.follow("assets", () => d.setAssets(store.assets));
     // the level button: 11003 raises the hero (the server pushes 11002 first, which the store takes), then the window shows the hero again
     d.onLevelUp(h => attempt(app, async () => {
       const r = await session.request(11003, { partner_id: h.partner_id }, 11003) as { result?: number; msg?: string };

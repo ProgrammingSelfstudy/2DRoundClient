@@ -4,7 +4,7 @@ import { Color, HorizontalTextAlignment, Label, Node, Sprite, UITransform, Verti
 import { atlasFrame, spriteFrame } from "./cdn";
 import type { SpriteFrame } from "cc";
 
-export interface Hero { partner_id: number; bid: number; lev: number; star: number; power: number }
+export interface Hero { partner_id: number; bid: number; lev: number; star: number; power: number; break_lev?: number }
 // base row: name, camp, initial star, career type, show order, rare flag, has a drawing (partners_table.py)
 export interface PartnerTable { base: { [bid: string]: [string, number, number, number, number, number, number] }; head: { [key: string]: number } }
 

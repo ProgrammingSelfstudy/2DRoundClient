@@ -139,10 +139,13 @@ export async function atlasFrame(atlas: string, name: string, cap?: number[]): P
   sf.offset = new Vec2(f.ox, f.oy);
   sf.originalSize = new Size(f.sw, f.sh);
   if (cap) {
-    sf.insetLeft = cap[0];
-    sf.insetRight = f.w - cap[0] - cap[2];
-    sf.insetTop = cap[1];
-    sf.insetBottom = f.h - cap[1] - cap[3];
+    // a cap rectangle that reaches past the picture (common_1018: 22 by 63 inside 58 by 51) leaves that direction unstretched; cocos tolerates it,
+    // Creator turns it into a negative inset and draws the picture small
+    const stretchX = cap[2] > 0 && cap[0] + cap[2] <= f.w, stretchY = cap[3] > 0 && cap[1] + cap[3] <= f.h;
+    sf.insetLeft = stretchX ? cap[0] : 0;
+    sf.insetRight = stretchX ? f.w - cap[0] - cap[2] : 0;
+    sf.insetTop = stretchY ? cap[1] : 0;
+    sf.insetBottom = stretchY ? f.h - cap[1] - cap[3] : 0;
   }
   return sf;
 }
