@@ -8,6 +8,8 @@ import { spineData } from "./spine";
 import { W, H } from "./loginpage";
 import { attackOf, backTarget, effectInfo, hitEvent, hitShare, movePlan, moveTarget, shakeSteps } from "./skillplan";
 import type { Cell, Fx, MovePlan } from "./skillplan";
+import { FxList, entitiesOf, playEntity } from "./skillfx";
+import type { FxRes, FxSpot } from "./skillfx";
 import type { Msg } from "./shared/proto/codec";
 
 interface Models { p: { [bidStar: string]: string }; u: { [unit: string]: [string, number] } }
@@ -22,7 +24,7 @@ const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 const BAR_W = 80, BAR_H = 8;
 const ACTION_FILES = ["action", "action1", "action2", "action3", "action4", "action5", "action6", "action7", "action8", "action9"];
 
-interface Hooks { hit?: (k: number) => void; move?: () => void; back?: () => void; shake?: () => void }
+interface Hooks { hit?: (k: number) => void; move?: () => void; back?: () => void; shake?: () => void; ready?: () => void; attack?: () => void }
 
 export interface BattleScene {
   root: Node;
@@ -54,9 +56,10 @@ function cell(group: number, pos: number): number[] {
 }
 
 export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
-  const [models, fx, buffTable] = await Promise.all([
+  const [models, fx, fxRes, buffTable] = await Promise.all([
     loadJson<Models>("tables/battle_models.json"),
     loadJson<Fx>("tables/skill_fx.json"),
+    loadJson<FxRes>("tables/skill_fx_res.json").catch(() => null), // a release without the effect table plays no skill effects
     loadJson<{ [bid: string]: [string, number] }>("tables/buffs.json"), // buff bid -> name, 1 benefit / 2 harm
   ]);
   const root = new Node("battle_scene");
@@ -81,7 +84,7 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
   floor.fillColor = new Color(118, 124, 58, 255);
   floor.rect(0, 0, W, 170);
   floor.fill();
-  const far = layer("far", 0, FAR_Y), ground = layer("ground", 0, GROUND_Y), roles = layer("roles", 0, ROLE_LAYER_Y);
+  const far = layer("far", 0, FAR_Y), ground = layer("ground", 0, GROUND_Y), fxBelow = layer("fx_below", 0, 0), roles = layer("roles", 0, ROLE_LAYER_Y), fxAbove = layer("fx_above", 0, 0);
   const top = layer("top", 0, 0); // the result banner, above the fighters
   const roundNode = layer("round", 0, 0); // the round counter, kept apart from the banner so a new fight can clear one without the other
   let tapped = () => {};
@@ -211,7 +214,9 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
       const timer = setTimeout(resolve, (found.s.findAnimation(found.anim)?.duration ?? 2) * 1000 + 500); // never wait for an animation forever
       found.s.setEventListener((_entry, event) => {
         const n = event.data.name.toLowerCase();
+        if (n === "attack") on?.attack?.(); // the original's attackPoint, whether or not the damage lands on this event too
         if (n === landOn) tick();
+        else if (n === "ready") on?.ready?.();
         else if (n === "move") on?.move?.();
         else if (n === "back") on?.back?.();
         else if (n === "shake_point") on?.shake?.();
@@ -282,7 +287,7 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
     const steps = shakeSteps(fx, shakeId);
     if (shaking || !steps.length) return;
     shaking = true;
-    const mine = token, layers = [far, ground, roles], base = layers.map(n => n.position.clone());
+    const mine = token, layers = [far, ground, fxBelow, roles, fxAbove], base = layers.map(n => n.position.clone());
     for (const st of steps) {
       if (mine !== token) break;
       layers.forEach((n, i) => n.setPosition(base[i].x + st.x, base[i].y + st.y, 0));
@@ -395,9 +400,26 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
         const shakeId = effects.map(e => effectInfo(fx, Number(e.effect_bid))?.shakeId ?? 0).find(id => id !== 0) ?? 0;
         const parts = effects.map(e => ({ e, n: effectInfo(fx, Number(e.effect_bid))?.splitHurt ?? 1, done: 0 }));
         const pending: Promise<void>[] = [];
-        const land = () => { for (const part of parts) if (part.done < part.n) pending.push(hit(part.e, ++part.done, part.n)); };
+        // the skill's effect models: the lists of its effect rows play at the animation's ready, attack (with the scene's area effects) and first hit
+        const spot = (f: Fighter): FxSpot => ({ root: f.root, side: f.side, height: 150 });
+        const bids = effects.map(e => Number(e.effect_bid));
+        const targets = effects.map(e => fighters.get(Number(e.target))).filter((t): t is Fighter => !!t && t.group !== actor.group);
+        const playFx = (list: number, onTargets: boolean) => {
+          if (!fxRes) return;
+          for (const id of entitiesOf(fxRes, bids, list)) {
+            if (onTargets) for (const t of new Set(targets)) playEntity(fxRes, id, list, spot(actor), spot(t), { above: fxAbove, below: fxBelow });
+            else playEntity(fxRes, id, list, spot(actor), victim ? spot(victim) : undefined, { above: fxAbove, below: fxBelow });
+          }
+        };
+        let hitFx = false;
+        const land = () => {
+          if (!hitFx) { hitFx = true; playFx(FxList.hit, true); }
+          for (const part of parts) if (part.done < part.n) pending.push(hit(part.e, ++part.done, part.n));
+        };
         const swing = perform(actor, attack.anim, false, {
           hit: land,
+          ready: () => playFx(FxList.ready, false),
+          attack: () => { playFx(FxList.attack, false); playFx(FxList.area, false); },
           move: () => {
             if (!victim || actor.ph) return; // no enemy to run to (a heal or a status), or a disc, which lunges by itself
             actor.root.setSiblingIndex(roles.children.length); // to the top, so it runs over the others

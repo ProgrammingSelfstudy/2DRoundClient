@@ -2,7 +2,7 @@
 // window's own background, the hero's model (Spine, when the release carries it), name, camp, stars and power, and the attribute list the
 // server sends in 11063 in the tab area, or the hero's skills (name, picture, text) from the client's own table. The other tabs (equipment, talent)
 // have no page yet.
-import { Color, HorizontalTextAlignment, Label, Mask, Node, Sprite, UITransform, VerticalTextAlignment } from "cc";
+import { Color, Graphics, HorizontalTextAlignment, Label, Mask, Node, Sprite, UITransform, VerticalTextAlignment } from "cc";
 import { atlasFrame, hasFile, loadJson, spriteFrame } from "./cdn";
 import { LNode, buildLayout, opaqueBase } from "./ui";
 import { W, H } from "./loginpage";
@@ -17,12 +17,17 @@ interface SkillInfo { h: { [heroStar: string]: number[] }; k: { [skill: string]:
 
 const COMMON = "ui/common/common.json";
 const CAMP: { [camp: number]: string } = { 1: "common_90067", 2: "common_90068", 3: "common_90069", 4: "common_90070", 5: "common_90079", 7: "common_900072" };
-// the 11063 fields in the order the list shows them
+// the 11063 fields as the original's attribute panel lists them (HeroTipsAttrPanel key lists; names from Config.AttrData.data_key_to_name), two to a row
 const ATTRS: [string, string][] = [
-  ["hp", "生命"], ["atk", "攻击"], ["def_p", "物防"], ["def_s", "魔防"], ["speed", "速度"], ["hit_rate", "命中"], ["dodge_rate", "闪避"],
-  ["crit_rate", "暴击"], ["crit_ratio", "暴伤"], ["hit_magic", "效果命中"], ["dodge_magic", "效果抵抗"], ["dam", "增伤"], ["res", "减伤"],
-  ["cure", "治疗"], ["be_cure", "受疗"], ["tenacity", "韧性"],
+  ["atk", "攻击"], ["hp", "生命"], ["def", "防御"], ["speed", "速度"],
+  ["crit_rate", "暴击率"], ["crit_ratio", "暴伤"], ["hit_magic", "控制"], ["dodge_magic", "抗控"], ["tenacity", "抗暴"], ["hit_rate", "命中"],
+  ["res", "免伤"], ["dodge_rate", "闪躲"], ["cure", "治疗"], ["be_cure", "受疗"], ["dam", "伤害加成"], ["dam_p", "物伤"], ["dam_s", "法伤"],
+  ["res_p", "物免"], ["res_s", "法免"],
 ];
+
+// the attributes the original shows as a percentage (Config.AttrData.data_type 2, HeroTipsAttrPanel.setData: the number is in tenths of a percent)
+const PERCENT = new Set(["crit_rate", "crit_ratio", "hit_magic", "dodge_magic", "hit_rate", "dodge_rate", "dam", "res", "cure", "be_cure", "tenacity", "dam_p", "dam_s", "res_p", "res_s"]);
+const shown = (key: string, v: number) => (PERCENT.has(key) ? `${v / 10}%` : String(v));
 
 export interface HeroDetail { root: Node; open(h: HeroInfo, attrs: Attrs | null): void; setAttrs(partnerId: number, attrs: Attrs): void; close(): void; onClose(f: () => void): void }
 
@@ -99,12 +104,12 @@ export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
 
   const drawAttrs = (attrs: Attrs | null) => {
     list.removeAllChildren();
-    // two columns of name / value, filled top to bottom
+    // two columns of name / value, filled left to right
     ATTRS.forEach(([key, title], i) => {
-      const col = Math.floor(i / 8), row = i % 8;
-      const x = -170 + col * 340, y = 150 - row * 42;
+      const col = i % 2, row = Math.floor(i / 2);
+      const x = -170 + col * 340, y = 165 - row * 36;
       label(list, title, x - 60, y, HorizontalTextAlignment.LEFT);
-      label(list, attrs && attrs[key] !== undefined ? String(attrs[key]) : "-", x + 90, y, HorizontalTextAlignment.RIGHT);
+      label(list, attrs && attrs[key] !== undefined ? shown(key, Number(attrs[key])) : "-", x + 90, y, HorizontalTextAlignment.RIGHT);
     });
   };
 
@@ -179,6 +184,108 @@ export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
     if (i === 1) drawSkills(curBid, curStar);
   };
 
+  // The original's page under the hero is the train panel (HeroMainTabTrainPanel): the level line, the four base attributes with a "?" that opens
+  // the full list (HeroTipsAttrPanel) and the hero's skill icons; the tab buttons are hidden there until a feature shows them. Its layout is not
+  // in the release (the original builds it in Lua), so the places come from a screenshot of the original, counted from the window's bottom.
+  node("tab_btn").active = false;
+  container.active = false;
+  const popup = (w: number, h: number, inner: Node) => {
+    const n = new Node("popup");
+    n.layer = root.layer;
+    n.addComponent(UITransform).setContentSize(W, H);
+    n.setPosition(W / 2, H / 2, 0);
+    const g = n.addComponent(Graphics);
+    g.fillColor = new Color(0, 0, 0, 170);
+    g.rect(-W / 2, -H / 2, W, H);
+    g.fill();
+    g.fillColor = new Color(52, 40, 32, 245);
+    g.roundRect(-w / 2, -h / 2, w, h, 12);
+    g.fill();
+    inner.removeFromParent();
+    inner.setPosition(0, 0, 0);
+    inner.active = true;
+    n.addChild(inner);
+    n.active = false;
+    n.on(Node.EventType.TOUCH_END, () => { n.active = false; });
+    root.addChild(n);
+    return n;
+  };
+  const attrPopup = popup(700, 400, list);
+  const skillPopup = popup(700, 400, skillView);
+
+  const train = new Node("train");
+  train.layer = root.layer;
+  train.addComponent(UITransform).setContentSize(W, H);
+  root.addChild(train);
+  const text = (s: string, x: number, y: number, size: number, color: Color, align = HorizontalTextAlignment.LEFT) => {
+    const l = label(train, s, x, y, align, size, 200);
+    l.color = color;
+    l.node.getComponent(UITransform)!.setAnchorPoint(align === HorizontalTextAlignment.LEFT ? 0 : 0.5, 0.5);
+    return l;
+  };
+  const GOLD = new Color(223, 204, 146, 255);
+  text("进阶:", 31, 534, 26, GOLD);
+  for (let i = 0; i < 5; i++) {
+    const st = new Node("star");
+    st.layer = root.layer;
+    st.addComponent(UITransform).setContentSize(28, 28);
+    st.setPosition(130 + i * 30, 534, 0);
+    const sp = st.addComponent(Sprite);
+    sp.sizeMode = Sprite.SizeMode.CUSTOM;
+    sp.color = new Color(90, 80, 70, 255); // no break stage is modelled: all five stars dark
+    atlasFrame(COMMON, "common_90074.png").then(sf => { if (sp.isValid) sp.spriteFrame = sf; }, () => {});
+    train.addChild(st);
+  }
+  const levelText = text("", 31, 434, 26, GOLD);
+  // base attributes: icon and value, as the train panel's attr_icon1..4 / attr_label1..4
+  const BASE: [string, string, number][] = [["atk", "common_90021", 31], ["hp", "common_90022", 207], ["def", "common_90023", 382], ["speed", "common_90038", 515]];
+  const baseText = BASE.map(([, frame, x]) => {
+    const ic = new Node("attr_icon");
+    ic.layer = root.layer;
+    ic.addComponent(UITransform).setContentSize(40, 40);
+    ic.setPosition(x + 20, 380, 0);
+    const sp = ic.addComponent(Sprite);
+    sp.sizeMode = Sprite.SizeMode.CUSTOM;
+    atlasFrame(COMMON, `${frame}.png`).then(sf => { if (sp.isValid) sp.spriteFrame = sf; }, () => {});
+    train.addChild(ic);
+    return text("", x + 50, 380, 26, new Color(255, 255, 255, 255));
+  });
+  const help = new Node("attr_help");
+  help.layer = root.layer;
+  help.addComponent(UITransform).setContentSize(48, 48);
+  help.setPosition(665, 380, 0);
+  const hg = help.addComponent(Graphics);
+  hg.fillColor = new Color(70, 52, 34, 255);
+  hg.circle(0, 0, 22);
+  hg.fill();
+  train.addChild(help);
+  label(help, "?", 0, 0, HorizontalTextAlignment.CENTER, 30, 48);
+  help.on(Node.EventType.TOUCH_END, () => { attrPopup.active = true; attrPopup.setSiblingIndex(root.children.length); });
+  const skillIcons: Sprite[] = [];
+  for (let i = 0; i < 4; i++) {
+    const ic = new Node("skill_icon");
+    ic.layer = root.layer;
+    ic.addComponent(UITransform).setContentSize(94, 94);
+    ic.setPosition(186 + i * 116, 292, 0);
+    const sp = ic.addComponent(Sprite);
+    sp.sizeMode = Sprite.SizeMode.CUSTOM;
+    ic.on(Node.EventType.TOUCH_END, () => { skillPopup.active = true; skillPopup.setSiblingIndex(root.children.length); });
+    train.addChild(ic);
+    skillIcons.push(sp);
+  }
+  const drawBase = (attrs: Attrs | null) => BASE.forEach(([key], i) => { baseText[i].string = attrs && attrs[key] !== undefined ? String(attrs[key]) : "-"; });
+  const drawSkillIcons = (bid: number, star: number) => {
+    let key = `${bid}_${star}`;
+    while (skills && !skills.h[key] && star > 1) key = `${bid}_${--star}`;
+    const ids = (skills?.h[key] ?? []).slice(0, 4);
+    skillIcons.forEach((sp, i) => {
+      sp.node.active = i < ids.length;
+      sp.spriteFrame = null;
+      const icon = i < ids.length ? skills!.k[String(ids[i])][2] : "";
+      if (icon && hasFile(`icons/skill/${icon}.webp`)) spriteFrame(`icons/skill/${icon}.webp`).then(sf => { if (sp.isValid) sp.spriteFrame = sf; }, () => {});
+    });
+  };
+
   const close = () => { root.active = false; closeFn(); };
   node("close_btn").on(Node.EventType.TOUCH_END, close);
 
@@ -208,14 +315,19 @@ export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
       // the model: only the heroes whose Spine the release carries show one
       modelNode.removeAllChildren();
       const model = models.p[`${h.bid}_${h.star}`];
-      if (model) spineNode(`spine/hero/${model}/stand2`, "stand2", modelNode).catch(e => console.warn(`hero info ${model}:`, (e as Error).message));
+      // the original (HeroMainInfoWindow.updateSpine) plays the model's "show" action, a large pose, from 240 below the node; stand2 is the fallback
+      const pose = hasFile(`spine/hero/${model}/show.json`) ? "show" : "stand2";
+      if (model) spineNode(`spine/hero/${model}/${pose}`, pose, modelNode).then(sk => sk.node.setPosition(0, -240, 0), e => console.warn(`hero info ${model}:`, (e as Error).message));
       drawAttrs(attrs);
+      drawBase(attrs);
+      levelText.string = `等级: ${h.lev}`;
+      drawSkillIcons(h.bid, h.star);
+      drawSkills(h.bid, h.star);
       curBid = h.bid;
       curStar = h.star;
-      showTab(0);
       root.active = true;
     },
-    setAttrs(partnerId, attrs) { if (partnerId === current) drawAttrs(attrs); },
+    setAttrs(partnerId, attrs) { if (partnerId === current) { drawAttrs(attrs); drawBase(attrs); } },
     close,
     onClose(f) { closeFn = f; },
   };

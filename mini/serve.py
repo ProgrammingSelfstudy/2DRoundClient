@@ -32,6 +32,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", mimetypes.guess_type(full)[0] or "application/octet-stream")
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Access-Control-Allow-Origin", "*")  # the page may be opened by 127.0.0.1 or by the LAN address the manifest names
         self.send_header("Cache-Control", "public, max-age=31536000, immutable" if rel.startswith("f/") else "no-cache")
         self.end_headers()
         self.wfile.write(body)

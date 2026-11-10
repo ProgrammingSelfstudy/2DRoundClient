@@ -18,7 +18,7 @@ import { buildFailWindow } from "./battlefail";
 import { spineNode } from "./spine";
 import { buildBattleScene } from "./battlescene";
 import { Feed, runFight } from "./battleflow";
-import { runSkillDemo } from "./skilldemo";
+import { runSkillButtons, runSkillDemo } from "./skilldemo";
 import { buildCityScene } from "./citybg";
 import { toast } from "./toast";
 import { GameSocket } from "./shared/net";
@@ -207,6 +207,9 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
       // dev convenience: ?skilldemo=10401_4 plays every active skill of that hero (bid_star) against a dummy; see skilldemo.ts
       const skillDemo = q.get("skilldemo");
       if (skillDemo) void runSkillDemo(battle, skillDemo).catch(e => console.warn(`skilldemo: ${(e as Error).message}`));
+      // dev convenience: ?skillbtn=70501_5 puts a button per skill of that hero over the page to cast them by hand
+      const skillBtn = q.get("skillbtn");
+      if (skillBtn) void runSkillButtons(battle, skillBtn).catch(e => console.warn(`skillbtn: ${(e as Error).message}`));
       page.hide(); // the login page gives way to the main city
     } catch (e) {
       console.warn(`login flow: ${(e as Error).stack ?? e}`);

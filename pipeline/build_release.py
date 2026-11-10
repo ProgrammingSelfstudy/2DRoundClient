@@ -81,14 +81,14 @@ def group_of(path):
         return "battlebg-" + m.group(1)
     m = SPINE_DIR.match(path)  # a Spine model: one group per model, named fx-E51130 / hero-H30036 / hero-h_aisilong as bundles.py does
     if m:
-        return ("fx-" if m.group(1).startswith("E") else "hero-") + m.group(1)
+        return ("fx-" if m.group(1).startswith(("E", "e_")) else "hero-") + m.group(1)
     return None
 
 
 BATTLE_BG = re.compile(r"^resource/bigbg/battle_bg/(\d+)/")
-SPINE_DIR = re.compile(r"^v9o8qm1Y40cbOAlh6LDp0kMDi5CzXlsO/(E\d+|[Hh]\d+|[Hh]_[A-Za-z0-9]+)/")
+SPINE_DIR = re.compile(r"^v9o8qm1Y40cbOAlh6LDp0kMDi5CzXlsO/(E\d+|e_[A-Za-z0-9_]+|[Hh]\d+|[Hh]_[A-Za-z0-9]+)/")
 SPINE_BASE = "v9o8qm1Y40cbOAlh6LDp0kMDi5CzXlsO"
-SPINE_ACTIONS = [f"action{i}" for i in range(1, 10)] + ["stand2", "hurt", "run", "show", "show2", "show3"]  # the animation files of a model
+SPINE_ACTIONS = [f"action{i}" for i in range(1, 10)] + ["action", "stand2", "hurt", "run", "show", "show2", "show3"]  # the animation files of a model
 
 
 def spine_logical(path, group, ext):  # v9o8.../E51130/action.skel -> spine/fx/E51130/action.<ext>
@@ -316,6 +316,8 @@ def main(assets, version, groups):
         put("tables/skill_fx.json", json.dumps(skill_fx(lua), separators=(",", ":")).encode(), "json", "battle", "skill_data*.lua, battle_act_data.lua")
         from hero_skills_table import table as hero_skills  # the skills of each hero: only the demo page (?skilldemo=) reads it
         put("tables/hero_skills.json", json.dumps(hero_skills(lua), ensure_ascii=False, separators=(",", ":")).encode(), "json", "battle", "partner_data.lua, skill_data*.lua")
+        from skill_fx_res_table import table as skill_fx_res  # which effect models a skill's effect row plays, and where (the entities of skill_data.lua)
+        put("tables/skill_fx_res.json", json.dumps(skill_fx_res(lua), separators=(",", ":")).encode(), "json", "battle", "skill_data*.lua")
         from buffs_table import table as buffs  # the battle statuses: name and benefit / harm
         put("tables/buffs.json", json.dumps(buffs(lua), ensure_ascii=False, separators=(",", ":")).encode(), "json", "battle", "skill_data.lua")
 
