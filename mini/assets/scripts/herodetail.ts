@@ -34,10 +34,10 @@ const ATTRS: [string, string][] = [
 const PERCENT = new Set(["crit_rate", "crit_ratio", "hit_magic", "dodge_magic", "hit_rate", "dodge_rate", "dam", "res", "cure", "be_cure", "tenacity", "dam_p", "dam_s", "res_p", "res_s"]);
 const shown = (key: string, v: number) => (PERCENT.has(key) ? `${v / 10}%` : String(v));
 
-export interface HeroDetail { root: Node; open(h: HeroInfo, attrs: Attrs | null): void; setAssets(a: { coin: number; heroExp: number }): void; setAttrs(partnerId: number, attrs: Attrs): void; close(): void; onClose(f: () => void): void; onLevelUp(f: (h: HeroInfo) => void): void; onPreview(f: (h: HeroInfo) => void): void }
+export interface HeroDetail { root: Node; open(h: HeroInfo, attrs: Attrs | null): void; setAssets(a: { coin: number; heroExp: number }): void; setAttrs(partnerId: number, attrs: Attrs): void; close(): void; onClose(f: () => void): void; onLevelUp(f: (h: HeroInfo) => void): void; onPreview(f: (h: HeroInfo) => void): void; onSwitch(f: (dir: number, from: HeroInfo) => void): void; onNotice(f: (text: string) => void): void }
 
 export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
-  const [win, table, models, skills, trainTree, growth, items] = await Promise.all([
+  const [win, table, models, skills, trainTree, growth, items, equipTree] = await Promise.all([
     loadJson<LNode>("layouts/hero/hero_main_info_window.json"),
     loadJson<PartnerTable>("tables/partners.json"),
     loadJson<Models>("tables/battle_models.json"),
@@ -45,10 +45,11 @@ export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
     loadJson<LNode>("layouts/hero/hero_main_tab_train_panel.json"),
     loadJson<Growth>("tables/hero_growth.json"),
     loadJson<{ [id: string]: [string, number] }>("tables/items.json"),
+    loadJson<LNode>("layouts/hero/hero_main_tab_equip_panel.json"),
   ]);
   const built = await buildLayout(win, canvas, {
-    // camp backdrop, resonance timer, side buttons, skin button, hero switch arrows and the voice area are driven by features not built yet
-    hide: ["hero_camp_bg", "resonate_panel", "comment_btn", "lock_btn", "share_btn", "reset_btn", "skin_btn", "left_btn", "right_btn", "voice_panel", "power_click"],
+    // the camp backdrop (a picture by camp the release does not carry), the resonance timer, the reset button (the Lua hides it too) and the voice area
+    hide: ["hero_camp_bg", "resonate_panel", "reset_btn", "voice_panel"],
   });
   const root = built.root;
   root.setPosition(-W / 2, -H / 2, 0);
@@ -63,17 +64,28 @@ export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
   spriteFrame("bg/hero/hero_info_bg_def.webp").then(sf => { if (bgSprite.isValid) bgSprite.spriteFrame = sf; }, e => console.warn("hero info background:", e));
   bg.getComponent(UITransform)!.setContentSize(W, H);
 
-  const tabs = ["属性", "技能", "装备", "天赋"];
-  tabs.forEach((title, i) => {
-    const btn = node("tab_btn").getChildByName(`tab_btn_${i + 1}`)!;
-    const label = btn.getChildByName("label")!.getComponent(Label)!;
-    label.string = title;
-    btn.getChildByName("select_img")!.active = i === 0;
-    btn.getChildByName("normal_img")!.active = i !== 0;
+  // the two round buttons at the lower left (the layout's tab_btn_1 and _2: 培养 and 升星; the Lua hides the other two until a feature shows them);
+  // 培养 is the page that is shown, 升星 is not built
+  let noticeFn = (_t: string) => {};
+  const TABS = ["培养", "升星"];
+  for (let i = 1; i <= 4; i++) {
+    const btn = node("tab_btn").getChildByName(`tab_btn_${i}`)!;
+    btn.active = i <= TABS.length;
+    if (i > TABS.length) continue;
+    const l = btn.getChildByName("label")!.getComponent(Label)!;
+    l.string = TABS[i - 1];
+    l.color = new Color(238, 209, 175, 255);
+    l.outlineColor = new Color(83, 61, 50, 255);
+    btn.getChildByName("select_img")!.active = false;
     btn.getChildByName("red_point")!.active = false;
-    btn.on(Node.EventType.TOUCH_END, () => showTab(i));
-  });
-  let showTab = (_i: number) => {}; // set below, once the pages it switches between exist
+    if (i === 2) btn.on(Node.EventType.TOUCH_END, () => noticeFn("暂未开放"));
+  }
+  // the buttons down the right side and the skin button: pictures of the layout; none of their features is built yet
+  for (const name of ["comment_btn", "lock_btn", "share_btn", "skin_btn"]) node(name).on(Node.EventType.TOUCH_END, () => noticeFn("暂未开放"));
+  let switchFn = (_dir: number, _from: HeroInfo) => {};
+  node("left_btn").on(Node.EventType.TOUCH_END, () => { if (shownHero) switchFn(-1, shownHero); });
+  node("right_btn").on(Node.EventType.TOUCH_END, () => { if (shownHero) switchFn(1, shownHero); });
+  node("right_btn").setScale(-Math.abs(node("right_btn").scale.x), node("right_btn").scale.y, 1); // the layout draws both arrows pointing left; the right one is mirrored
 
   const label = (parent: Node, text: string, x: number, y: number, align: HorizontalTextAlignment, size = 24, width = 300) => {
     const n = new Node("text");
@@ -100,15 +112,54 @@ export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
   const starNode = node("star_node");
   const campIcon = node("camp_icon").getComponent(Sprite)!;
   const nameLabel = node("name").getComponent(Label)!;
-  const powerLabel = label(lay, "", 0, 334, HorizontalTextAlignment.CENTER, 28); // where power_click sat
+  // the power: power_click holds the "战斗力" picture, the number is the Lua's CommonNum at (155, 25) of it
+  const powerClick = node("power_click");
+  const powerLabel = label(powerClick, "", 155 - 130, 25 - 20, HorizontalTextAlignment.CENTER, 30, 200);
+  powerLabel.color = new Color(255, 232, 170, 255);
+  powerLabel.outlineColor = new Color(70, 30, 10, 255);
   const container = node("tab_container");
   const list = new Node("attrs");
   list.layer = container.layer;
   list.addComponent(UITransform).setContentSize(680, 360);
   container.addChild(list);
 
+  // The equipment panel (HeroMainTabEquipPanel, layout hero/hero_main_tab_equip_panel.csb) hangs on lay_hero, centred on it: four equipment slots (weapon, shoes,
+  // clothes, hat) with the empty slot's silhouette, two locked slots (the level of the first, the star of the second) and the buttons "一键穿戴" / "一键卸下".
+  // The client does not read what a hero wears yet, so the slots are shown empty.
+  const equipBuilt = await buildLayout(equipTree, lay, {});
+  const eq = (name: string) => equipBuilt.byName.get(name)!;
+  equipBuilt.root.setPosition(-340, 0.5 * lay.getComponent(UITransform)!.height - 186.49, 0);
+  const SILHOUETTE = [7, 10, 9, 8];
+  SILHOUETTE.forEach((icon, i) => {
+    const slot = new Node("equip_slot");
+    slot.layer = lay.layer;
+    slot.addComponent(UITransform).setContentSize(119, 119);
+    slot.setScale(0.8, 0.8, 1);
+    const fs = slot.addComponent(Sprite);
+    fs.sizeMode = Sprite.SizeMode.CUSTOM;
+    fs.color = new Color(92, 70, 60, 255); // the original's empty slot is dark brown; its background node is a csb whose tint this build does not read, so this is by eye
+    atlasFrame(COMMON, "common_1005.png").then(sf => { if (fs.isValid) fs.spriteFrame = sf; }, () => {});
+    const pic = new Node("empty_icon");
+    pic.layer = lay.layer;
+    pic.addComponent(UITransform);
+    const ps = pic.addComponent(Sprite);
+    ps.sizeMode = Sprite.SizeMode.RAW;
+    atlasFrame("ui/hero/hero.json", `hero_info_${icon}.png`).then(sf => { if (ps.isValid) ps.spriteFrame = sf; }, () => {});
+    slot.addChild(pic);
+    slot.on(Node.EventType.TOUCH_END, () => noticeFn("暂未开放"));
+    eq(`equip_node${i + 1}`).addChild(slot);
+  });
+  // the two locked slots: the Lua scales the lock, its text and the box by 0.8 / 0.9
+  [["5", `${100}级解锁`], ["6", "7星解锁"]].forEach(([n, text]) => {
+    for (const name of [`img_lock${n}`, `lab_lock${n}`]) eq(name).setScale(0.8, 0.8, 1);
+    eq(`lab_lock${n}`).getComponent(Label)!.string = text;
+    for (const name of [`artifacts_bg_${Number(n) - 4}`]) eq(name).setScale(0.9, 0.9, 1);
+    const box = eq(`equip_node${n}`).getChildByName("box_34");
+    box?.setScale(0.9, 0.9, 1);
+  });
+  for (const name of ["key_up_btn", "discharge_btn"]) eq(name).on(Node.EventType.TOUCH_END, () => noticeFn("暂未开放"));
+
   let current = 0, closeFn = () => {};
-  let levelLabel: Label | null = null;
 
   const drawAttrs = (attrs: Attrs | null) => {
     list.removeAllChildren();
@@ -178,21 +229,10 @@ export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
   };
 
   let curBid = 0, curStar = 1;
-  showTab = (i: number) => {
-    tabs.forEach((_, j) => {
-      const b = node("tab_btn").getChildByName(`tab_btn_${j + 1}`)!;
-      b.getChildByName("select_img")!.active = j === i;
-      b.getChildByName("normal_img")!.active = j !== i;
-    });
-    list.active = i === 0;
-    skillView.active = i === 1;
-    if (i === 1) drawSkills(curBid, curStar);
-  };
 
   // The original's page under the hero is the train panel (HeroMainTabTrainPanel), its layout hero/hero_main_tab_train_panel.csb: the break stars, the
   // level and what the next levels cost with the level button, the four base attributes and a "?" that opens the full list (HeroTipsAttrPanel), the
   // career and the position text, and the skill icons. It is centred in the window's tab_container; the tab buttons stay hidden.
-  node("tab_btn").active = false;
   const popup = (w: number, h: number, inner: Node) => {
     const n = new Node("popup");
     n.layer = root.layer;
@@ -431,7 +471,9 @@ export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
       shownHero = h;
       const base = table.base[String(h.bid)];
       nameLabel.string = base?.[0] ?? String(h.bid);
-      powerLabel.string = `战力 ${h.power}`;
+      powerLabel.string = String(h.power);
+      for (const name of ["left_btn", "right_btn"]) node(name).active = h.partner_id !== 0; // a library card is not in a list of yours
+      equipBuilt.root.active = h.partner_id !== 0; // and wears nothing
       atlasFrame(COMMON, `${CAMP[base?.[1] ?? 0] ?? "common_90071"}.png`).then(sf => { if (campIcon.isValid) campIcon.spriteFrame = sf; }, () => {});
       // stars: 5 along a row, 30 apart, centred on star_node
       starNode.removeAllChildren();
@@ -446,8 +488,6 @@ export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
         atlasFrame(COMMON, "common_90074.png").then(sf => { if (sp.isValid) sp.spriteFrame = sf; }, () => {});
         starNode.addChild(s);
       }
-      levelLabel?.node.destroy();
-      levelLabel = label(lay, `Lv.${h.lev}`, 0, 365, HorizontalTextAlignment.CENTER);
       // the model: only the heroes whose Spine the release carries show one
       modelNode.removeAllChildren();
       const model = models.p[`${h.bid}_${h.star}`];
@@ -469,5 +509,7 @@ export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
     onClose(f) { closeFn = f; },
     onLevelUp(f) { levelUpFn = f; },
     onPreview(f) { previewFn = f; },
+    onSwitch(f) { switchFn = f; },
+    onNotice(f) { noticeFn = f; },
   };
 }

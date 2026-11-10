@@ -1,7 +1,10 @@
 // The heroes: the hero page of the second tab, the hero info window (11063 fills its attributes) and the library.
 import { App, attempt } from "./app";
 import type { FormationFeature } from "./formation";
+import { loadJson } from "./cdn";
 import { buildHeroDetail } from "./herodetail";
+import { listedHeroes } from "./herofilter";
+import type { PartnerTable } from "./herocell";
 import { buildHeroLibrary } from "./herolibrary";
 import { HeroPage, buildHeroPage } from "./heropage";
 import type { BattleScene } from "./battlescene";
@@ -23,6 +26,17 @@ export function heroFeature(app: App, formation: FormationFeature, battle: Win<B
     const d = await buildHeroDetail(parent);
     d.onPreview(h => attempt(app, async () => (await preview.front()).open(h.bid, h.star)));
     store.follow("assets", () => d.setAssets(store.assets));
+    d.onNotice(text => app.toast(text));
+    // the arrows step to the next or the last hero of the hero page's list
+    d.onSwitch((dir, from) => attempt(app, async () => {
+      const table = await loadJson<PartnerTable>("tables/partners.json");
+      const list = listedHeroes(table, store.heroes);
+      const at = list.findIndex(x => x.partner_id === from.partner_id);
+      if (at < 0 || list.length < 2) return;
+      const h = list[(at + dir + list.length) % list.length];
+      d.open(h, null);
+      d.setAttrs(h.partner_id, await session.request(11063, { partner_id: h.partner_id }, 11063) as never);
+    }));
     // the level button: 11003 raises the hero (the server pushes 11002 first, which the store takes), then the window shows the hero again
     d.onLevelUp(h => attempt(app, async () => {
       const r = await session.request(11003, { partner_id: h.partner_id }, 11003) as { result?: number; msg?: string };

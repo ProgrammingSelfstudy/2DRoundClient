@@ -15,3 +15,8 @@ export function listed(table: PartnerTable, bid: number): boolean {
   const row = table.base[String(bid)];
   return !row || row[2] >= MIN_HERO_STAR;
 }
+
+// the heroes of the hero page in its order (highest star, then power, then id), for what steps through them (the info window's arrows)
+export function listedHeroes<T extends { bid: number; star: number; power: number; partner_id: number }>(table: PartnerTable, heroes: T[]): T[] {
+  return heroes.filter(h => listed(table, h.bid)).sort((a, b) => b.star - a.star || b.power - a.power || a.partner_id - b.partner_id);
+}
