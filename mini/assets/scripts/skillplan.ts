@@ -11,6 +11,7 @@ export interface Fx {
   s: { [shakeId: string]: [number, number, number] }; // strength, rounds, step in ms
   k?: { [effectBid: string]: [number, number, number] }; // black screen of an effect: delay (1/30 s), opacity 0..255, hides everyone but attacker and targets; absent in older releases
   nm?: { [skillBid: string]: string }; // the name of every active skill that is not a normal attack (the banner's text); absent in older releases
+  y?: { [effectBid: string]: number }; // target_type of the effect rows whose target is not the enemy (1): 4 is the caster itself; absent in older releases
   n?: number[]; // the skills that are a hero's normal attack, which get no skill-name banner; absent in older releases
   m: { [model: string]: { [animeRes: string]: { [anim: string]: number[] } } }; // see MOVE_FIELDS; "0" is the default row
 }
@@ -37,6 +38,9 @@ export function blackOf(fx: Fx, effectBids: number[]): { delay: number; alpha: n
   }
   return found;
 }
+
+// who an effect row acts on, from the table alone: 4 is the caster itself (a skill's own hit point cost), anything else the enemy
+export const hitsSelf = (fx: Fx, effectBid: number): boolean => fx.y?.[String(effectBid)] === 4;
 
 export function effectInfo(fx: Fx, effectBid: number): EffectInfo | null {
   const i = fx.e[String(effectBid)];

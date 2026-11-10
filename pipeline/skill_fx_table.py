@@ -9,6 +9,8 @@
   k  effect bid -> [delay in 1/30 s, opacity 0..255, hides the others 0|1]: the effect's black screen (action_list acts blackScreen2/3/4 of
      skill_data.lua's act table; plain blackScreen does nothing in battle_model.lua, blackScreen6 is not done). Opacity is the act's third
      argument, 255 without one; blackScreen2 (only the attacker and its targets stay shown) also hides the others
+  y  effect bid -> target_type, only for the rows whose target_type is not 1 (the enemy): 4 is the caster itself (the 炼狱鬼斩's own 15% hit point cost,
+     seen in the original's fight record); the other values are not worked out, so a reader treats anything but 4 as the enemy
   n  [skill bid] of the active skills that are a hero's normal attack (skill row field 6 is 1): the skill-name banner is not shown for them
   nm skill bid -> name of every active skill that is not a normal attack, so the banner finds the form variants (541314 is 阿修罗·亡者戏 again) that no hero's skill list has
   m  model -> anime_res -> animation name -> [move_time, move_model_x, move_model_y, back_delay_time, back_move_time, back_model_x,
@@ -47,6 +49,21 @@ def effects(lua_dir):
                 rows.append(list(item))
     assert len(by_bid) > 7000, len(by_bid)  # 7665 effect rows
     return rows, by_bid
+
+
+def targets(lua_dir):
+    out = {}
+    for path in sorted(glob.glob(f"{lua_dir}/skill_data*.lua")):
+        src = open(path, encoding="utf-8").read()
+        if "data_get_effect_table = {" not in src:
+            continue
+        src = src[src.index("data_get_effect_table = {"):]
+        src = src[:src.index("\n}\n")]
+        for m in re.finditer(r'\[(\d+)\] = "(\{.*\})",?\n', src):
+            ty = int(lua_row(m.group(2))[2])
+            if ty != 1:
+                out[m.group(1)] = ty
+    return out
 
 
 def blacks(lua_dir):
@@ -172,7 +189,7 @@ def acts(lua_dir):
 
 def table(lua_dir):
     t, e = effects(lua_dir)
-    return {"t": t, "e": e, "g": group_actions(lua_dir), "s": shakes(lua_dir), "k": blacks(lua_dir), "n": normals(lua_dir), "nm": skill_names(lua_dir), "m": acts(lua_dir)}
+    return {"t": t, "e": e, "g": group_actions(lua_dir), "s": shakes(lua_dir), "k": blacks(lua_dir), "y": targets(lua_dir), "n": normals(lua_dir), "nm": skill_names(lua_dir), "m": acts(lua_dir)}
 
 
 if __name__ == "__main__":

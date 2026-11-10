@@ -5,7 +5,7 @@
 import { Color, Graphics, HorizontalTextAlignment, Label, Node, UITransform, VerticalTextAlignment } from "cc";
 import { loadJson } from "./cdn";
 import { W, H, chapterMap } from "./design";
-import { attackOf, effectInfo } from "./skillplan";
+import { attackOf, effectInfo, hitsSelf } from "./skillplan";
 import type { Fx } from "./skillplan";
 import type { BattleScene } from "./battlescene";
 import type { Msg } from "./shared/proto/codec";
@@ -92,7 +92,7 @@ export async function buildSkillPreview(parent: Node, scene: BattleScene, afterC
         await scene.play([{
           order: 1, actor: MINE, target: THEIRS, skill_bid: sid, talk_pos: 0, talk_content: "",
           effect_play: effects.map((effect_bid, i) => ({
-            order: i + 1, actor: MINE, target: THEIRS, effect_bid, is_hit: 1, is_crit: 0, hp: HP,
+            order: i + 1, actor: MINE, target: hitsSelf(fx, effect_bid) ? MINE : THEIRS, effect_bid, is_hit: 1, is_crit: 0, hp: HP, // by the effect row's own target, not by the skill
             hp_changed: effectInfo(fx, effect_bid)?.noHurt ? 0 : -1000, is_dead: 0, buff_list: [],
           })),
         }] as unknown as Msg[]);
