@@ -5,7 +5,6 @@ import { loadJson } from "./cdn";
 import { buildHeroDetail } from "./herodetail";
 import { listedHeroes } from "./herofilter";
 import type { PartnerTable } from "./herocell";
-import { buildHeroLibrary } from "./herolibrary";
 import { HeroPage, buildHeroPage } from "./heropage";
 import type { BattleScene } from "./battlescene";
 import { buildSkillPreview } from "./skillpreview";
@@ -48,20 +47,14 @@ export function heroFeature(app: App, formation: FormationFeature, battle: Win<B
     return d;
   }, w => w.close());
 
-  const library = windows.define("full", async parent => {
-    const lib = await buildHeroLibrary(parent, () => new Set(store.heroes.map(x => x.bid)));
-    // a card of the library opens the hero info window with the hero at its initial star (no attributes: it is nobody's hero)
-    lib.onHero((bid, star) => attempt(app, async () => (await detail.front()).open({ partner_id: 0, bid, lev: 1, star, power: 0 }, null)));
-    return lib;
-  }, w => w.close());
-
   const page = windows.define("page", async parent => {
     const p = await buildHeroPage(parent);
     store.follow("heroes", () => p.setHeroes(store.heroes, store.heroCap));
     p.onTab(i => {
-      if (i === 1) attempt(app, async () => (await library.front()).open());
-      else if (i !== 0) app.toast("暂未开放");
+      app.toast("暂未开放"); // the hero and library tabs are the page's own modes; the others have no page yet
     });
+    // a head of the library tab opens the hero info window with the hero at its initial star (no attributes: it is nobody's hero)
+    p.onLibraryHero((bid, star) => attempt(app, async () => (await detail.front()).open({ partner_id: 0, bid, lev: 1, star, power: 0 }, null)));
     // tapping a hero opens its info window at once with what the list has, then fills the attribute list from 11063
     p.onHero(h => attempt(app, async () => {
       const d = await detail.front();
