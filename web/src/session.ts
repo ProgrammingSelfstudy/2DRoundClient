@@ -18,7 +18,8 @@ export const expectedCode = (cmd: number, idx: number) => cmd + ((idx + 5) % 16)
 export class Session {
   readonly sock: GameSocket;
   private idx = 0;
-  private waiters = new Map<number, (m: Msg | null) => void>();
+  // who waits for the next frame of a command, first come first served: two requests for the same answer each get their own frame
+  private waiters = new Map<number, Array<(m: Msg | null) => void>>();
   // the newest decoded frame of every server command, and when the last frame of any kind arrived
   readonly last = new Map<number, Msg>();
   lastFrameAt = 0;
@@ -31,17 +32,28 @@ export class Session {
       if (msg) this.last.set(cmd, msg);
       const fs = this.listeners.get(cmd);
       if (msg && fs) for (const f of fs) f(msg);
-      const w = this.waiters.get(cmd);
-      if (w) {
-        this.waiters.delete(cmd);
-        w(msg);
-      }
+      const w = this.waiters.get(cmd)?.shift();
+      if (w) w(msg);
     };
   }
 
-  // call `f` for every decoded frame of `cmd` from now on (a server push the UI follows, unlike waitFor's single wait)
-  on(cmd: number, f: (m: Msg) => void) {
+  private wait(cmd: number, w: (m: Msg | null) => void) {
+    const list = this.waiters.get(cmd);
+    if (list) list.push(w);
+    else this.waiters.set(cmd, [w]);
+  }
+
+  private unwait(cmd: number, w: (m: Msg | null) => void) {
+    const list = this.waiters.get(cmd);
+    const i = list ? list.indexOf(w) : -1;
+    if (i >= 0) list!.splice(i, 1);
+  }
+
+  // call `f` for every decoded frame of `cmd` from now on (a server push the UI follows, unlike waitFor's single wait);
+  // the function it returns stops the calls
+  on(cmd: number, f: (m: Msg) => void): () => void {
     this.listeners.set(cmd, [...(this.listeners.get(cmd) ?? []), f]);
+    return () => { this.listeners.set(cmd, (this.listeners.get(cmd) ?? []).filter(g => g !== f)); };
   }
 
   // connect and wait until the socket is open; the UI's own state listener keeps working
@@ -96,19 +108,20 @@ export class Session {
   // send and wait for the next frame with command `reply`
   request(cmd: number, msg: Msg, reply: number, timeoutMs = 8000): Promise<Msg> {
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.waiters.delete(reply);
-        reject(new Error(`no answer ${reply} to ${cmd} within ${timeoutMs} ms`));
-      }, timeoutMs);
-      this.waiters.set(reply, m => {
+      const w = (m: Msg | null) => {
         clearTimeout(timer);
         m ? resolve(m) : reject(new Error(`answer ${reply} could not be decoded`));
-      });
+      };
+      const timer = setTimeout(() => {
+        this.unwait(reply, w);
+        reject(new Error(`no answer ${reply} to ${cmd} within ${timeoutMs} ms`));
+      }, timeoutMs);
+      this.wait(reply, w);
       try {
         this.send(cmd, msg);
       } catch (e) {
         clearTimeout(timer);
-        this.waiters.delete(reply);
+        this.unwait(reply, w);
         reject(e);
       }
     });
@@ -117,11 +130,15 @@ export class Session {
   // wait for a server push without sending anything
   waitFor(cmd: number, timeoutMs = 8000): Promise<Msg> {
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`no ${cmd} within ${timeoutMs} ms`)), timeoutMs);
-      this.waiters.set(cmd, m => {
+      const w = (m: Msg | null) => {
         clearTimeout(timer);
         m ? resolve(m) : reject(new Error(`push ${cmd} could not be decoded`));
-      });
+      };
+      const timer = setTimeout(() => {
+        this.unwait(cmd, w);
+        reject(new Error(`no ${cmd} within ${timeoutMs} ms`));
+      }, timeoutMs);
+      this.wait(cmd, w);
     });
   }
 }
