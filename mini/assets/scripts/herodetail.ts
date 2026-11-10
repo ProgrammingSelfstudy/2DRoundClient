@@ -30,7 +30,7 @@ const ATTRS: [string, string][] = [
 const PERCENT = new Set(["crit_rate", "crit_ratio", "hit_magic", "dodge_magic", "hit_rate", "dodge_rate", "dam", "res", "cure", "be_cure", "tenacity", "dam_p", "dam_s", "res_p", "res_s"]);
 const shown = (key: string, v: number) => (PERCENT.has(key) ? `${v / 10}%` : String(v));
 
-export interface HeroDetail { root: Node; open(h: HeroInfo, attrs: Attrs | null): void; setAttrs(partnerId: number, attrs: Attrs): void; close(): void; onClose(f: () => void): void }
+export interface HeroDetail { root: Node; open(h: HeroInfo, attrs: Attrs | null): void; setAttrs(partnerId: number, attrs: Attrs): void; close(): void; onClose(f: () => void): void; onLevelUp(f: (h: HeroInfo) => void): void }
 
 export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
   const [win, table, models, skills] = await Promise.all([
@@ -235,6 +235,20 @@ export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
     train.addChild(st);
   }
   const levelText = text("", 31, 434, 26, GOLD);
+  // the level button (the original's "升5级", HeroMainTabTrainPanel): one tap asks 11003, the server raises up to five levels it can pay for
+  let levelUpFn = (_h: HeroInfo) => {};
+  let shownHero: HeroInfo | null = null;
+  const upBtn = new Node("level_up");
+  upBtn.layer = root.layer;
+  upBtn.addComponent(UITransform).setContentSize(180, 64);
+  upBtn.setPosition(540, 434, 0);
+  const ug = upBtn.addComponent(Graphics);
+  ug.fillColor = new Color(214, 132, 36, 255);
+  ug.roundRect(-90, -32, 180, 64, 14);
+  ug.fill();
+  label(upBtn, "升级", 0, 0, HorizontalTextAlignment.CENTER, 30, 180);
+  upBtn.on(Node.EventType.TOUCH_END, () => { if (shownHero && shownHero.partner_id) levelUpFn(shownHero); });
+  train.addChild(upBtn);
   // base attributes: icon and value, as the train panel's attr_icon1..4 / attr_label1..4
   const BASE: [string, string, number][] = [["atk", "common_90021", 31], ["hp", "common_90022", 207], ["def", "common_90023", 382], ["speed", "common_90038", 515]];
   const baseText = BASE.map(([, frame, x]) => {
@@ -291,6 +305,8 @@ export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
     root,
     open(h, attrs) {
       current = h.partner_id;
+      shownHero = h;
+      upBtn.active = h.partner_id !== 0; // a library card is nobody's hero
       const base = table.base[String(h.bid)];
       nameLabel.string = base?.[0] ?? String(h.bid);
       powerLabel.string = `战力 ${h.power}`;
@@ -328,5 +344,6 @@ export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
     setAttrs(partnerId, attrs) { if (partnerId === current) { drawAttrs(attrs); drawBase(attrs); } },
     close,
     onClose(f) { closeFn = f; },
+    onLevelUp(f) { levelUpFn = f; },
   };
 }

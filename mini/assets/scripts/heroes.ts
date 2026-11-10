@@ -11,7 +11,18 @@ export interface HeroFeature { page: Win<HeroPage> }
 export function heroFeature(app: App, formation: FormationFeature): HeroFeature {
   const { session, store, windows } = app;
 
-  const detail = windows.define("full", buildHeroDetail, w => w.close());
+  const detail = windows.define("full", async parent => {
+    const d = await buildHeroDetail(parent);
+    // the level button: 11003 raises the hero (the server pushes 11002 first, which the store takes), then the window shows the hero again
+    d.onLevelUp(h => attempt(app, async () => {
+      const r = await session.request(11003, { partner_id: h.partner_id }, 11003) as { result?: number; msg?: string };
+      if (Number(r.result) !== 1) { app.toast(String(r.msg || "升级失败")); return; }
+      const now = store.heroes.find(x => x.partner_id === h.partner_id) ?? h;
+      d.open(now, null);
+      d.setAttrs(h.partner_id, await session.request(11063, { partner_id: h.partner_id }, 11063) as never);
+    }));
+    return d;
+  }, w => w.close());
 
   const library = windows.define("full", async parent => {
     const lib = await buildHeroLibrary(parent);

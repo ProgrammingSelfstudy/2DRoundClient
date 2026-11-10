@@ -10,7 +10,7 @@ export interface Role { name: string; lev: number; exp: number; expMax: number; 
 export interface Assets { coin: number; gold: number; heroExp: number }
 export interface Slot { base_id: number; quantity: number }
 
-// role: 10301 (and the level, exp and power the server sends apart: 10302, 10306)   assets: 10302   heroes: 11025
+// heroes also: 11002 (one hero changed)   role: 10301 (and the level, exp and power the server sends apart: 10302, 10306)   assets: 10302   heroes: 11025
 // bag: 10500 (items), 10501 (equipment)   drama: 13000, 13001   icons: 10922, 10924, 10923
 export type Topic = "role" | "assets" | "heroes" | "bag" | "drama" | "icons";
 
@@ -36,6 +36,11 @@ export class Store {
     session.on(10302, m => { this.set("assets", () => this.readAssets(m)); this.set("role", () => { this.role = { ...this.role, lev: num(m.lev), exp: num(m.exp) }; }); });
     session.on(10306, m => this.set("role", () => { this.role = { ...this.role, power: num(m.power) }; }));
     session.on(11025, m => this.set("heroes", () => this.readHeroes(m)));
+    session.on(11002, m => this.set("heroes", () => { // one hero changed (level, break): replace it in the list
+      const h = { partner_id: num(m.partner_id), bid: num(m.bid), lev: num(m.lev), star: num(m.star), power: num(m.power) };
+      const i = this.heroes.findIndex(x => x.partner_id === h.partner_id);
+      if (i >= 0) this.heroes[i] = h; else this.heroes.push(h);
+    }));
     session.on(10500, m => this.set("bag", () => { this.items = slots(m); }));
     session.on(10501, m => this.set("bag", () => { this.equips = slots(m); }));
     session.on(13000, m => this.set("drama", () => { this.drama = m; }));
