@@ -6,6 +6,10 @@
   e  effect bid -> index into t (the server sends the effect bid in 20004's effect_play)
   g  effect group (skill number // 10) -> the attack animation (skill_actions_table.py), for an effect the server sent without a bid
   s  shake id -> [strength, time, rate] (skill_data.lua, data_get_shake_data)
+  k  effect bid -> [delay in 1/30 s, opacity 0..255, hides the others 0|1]: the effect's black screen (action_list acts blackScreen2/3/4 of
+     skill_data.lua's act table; plain blackScreen does nothing in battle_model.lua, blackScreen6 is not done). Opacity is the act's third
+     argument, 255 without one; blackScreen2 (only the attacker and its targets stay shown) also hides the others
+  n  [skill bid] of the active skills that are a hero's normal attack (skill row field 6 is 1): the skill-name banner is not shown for them
   m  model -> anime_res -> animation name -> [move_time, move_model_x, move_model_y, back_delay_time, back_move_time, back_model_x,
      move_delay_time, is_reverse, is_move_area, is_col_act, is_move_map] (battle_act_data.lua, data_info); "0" is the default row
 
@@ -42,6 +46,54 @@ def effects(lua_dir):
                 rows.append(list(item))
     assert len(by_bid) > 7000, len(by_bid)  # 7665 effect rows
     return rows, by_bid
+
+
+def blacks(lua_dir):
+    """effect bid -> [delay, opacity, hide]; the first black act of the effect's action list sets the opacity (the scene's layer is shown once)"""
+    src = open(f"{lua_dir}/skill_data.lua", encoding="utf-8").read()
+    acts = {}
+    for m in re.finditer(r'\[(\d+)\] = \{\s*act_type = \d+,\s*bid = \d+,\s*name = "[^"]*",\s*act_args = \{\s*"(\w+)",\s*\{([^}]*)\},?\s*\},?\s*\}', src):
+        if m.group(2) in ("blackScreen2", "blackScreen3", "blackScreen4"):
+            acts[int(m.group(1))] = (m.group(2), [a.strip().strip('"') for a in m.group(3).split(",") if a.strip()])
+    assert len(acts) == 7, acts  # 10008, 10026, 10027, 10040 to 10043 (no act uses blackScreen4)
+
+    def flat(x):
+        for i in x:
+            if isinstance(i, list):
+                yield from flat(i)
+            else:
+                yield i
+
+    out = {}
+    for path in sorted(glob.glob(f"{lua_dir}/skill_data*.lua")):
+        text = open(path, encoding="utf-8").read()
+        if "data_get_effect_table = {" not in text:
+            continue
+        text = text[text.index("data_get_effect_table = {"):]
+        text = text[:text.index("\n}\n")]
+        for m in re.finditer(r'\[(\d+)\] = "(\{.*\})",?\n', text):
+            hit = [acts[a] for a in flat(lua_row(m.group(2))[4]) if a in acts]
+            if not hit:
+                continue
+            first = hit[0][1]
+            delay = int(first[0]) if first and first[0].lstrip("-").isdigit() else 0
+            opacity = int(first[2]) if len(first) > 2 and first[2].isdigit() else 255
+            out[m.group(1)] = [delay, min(255, opacity), 1 if any(h[0] == "blackScreen2" for h in hit) else 0]
+    assert len(out) > 1000, len(out)  # 1128 effects
+    return out
+
+
+def normals(lua_dir):
+    """the skills that are normal attacks: skill rows (the quoted literals of skill_data*.lua) {bid, "name", "kind", n, n, n, normal, n, "active_skill", ...}
+    with the normal field 1; read with a pattern because some rows' texts do not parse as JSON"""
+    out = set()
+    pat = re.compile(r'\[(\d+)\] = "\{\d+, \\"[^\n]*?\\", \\"[^\n]*?\\", -?\d+, -?\d+, -?\d+, (\d+), -?\d+, \\"active_skill\\"')
+    for path in sorted(glob.glob(f"{lua_dir}/skill_data*.lua")):
+        for m in pat.finditer(open(path, encoding="utf-8").read()):
+            if m.group(2) == "1":
+                out.add(int(m.group(1)))
+    assert 100 < len(out) < 3000, len(out)
+    return sorted(out)
 
 
 def shakes(lua_dir):
@@ -107,7 +159,7 @@ def acts(lua_dir):
 
 def table(lua_dir):
     t, e = effects(lua_dir)
-    return {"t": t, "e": e, "g": group_actions(lua_dir), "s": shakes(lua_dir), "m": acts(lua_dir)}
+    return {"t": t, "e": e, "g": group_actions(lua_dir), "s": shakes(lua_dir), "k": blacks(lua_dir), "n": normals(lua_dir), "m": acts(lua_dir)}
 
 
 if __name__ == "__main__":

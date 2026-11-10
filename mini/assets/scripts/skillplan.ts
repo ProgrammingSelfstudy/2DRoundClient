@@ -9,6 +9,8 @@ export interface Fx {
   e: { [effectBid: string]: number }; // effect bid -> index into t
   g: { [group: string]: string }; // effect group (skill number // 10) -> attack animation
   s: { [shakeId: string]: [number, number, number] }; // strength, rounds, step in ms
+  k?: { [effectBid: string]: [number, number, number] }; // black screen of an effect: delay (1/30 s), opacity 0..255, hides everyone but attacker and targets; absent in older releases
+  n?: number[]; // the skills that are a hero's normal attack, which get no skill-name banner; absent in older releases
   m: { [model: string]: { [animeRes: string]: { [anim: string]: number[] } } }; // see MOVE_FIELDS; "0" is the default row
 }
 
@@ -21,6 +23,19 @@ export interface EffectInfo { anim: string; animeRes: string; shakeId: number; n
 const ACTIONS = ["action1", "action2", "action3", "action5"];
 // a skill with no effect row or group (about one in seven of the server's skills): by its number, ...001 action1, ...101 action2, ...201 action3, ...301 action5
 export const guessAction = (skillBid: number) => ACTIONS[Math.min(ACTIONS.length - 1, Math.floor((skillBid % 1000) / 100))];
+
+// the black screen an effect brings (BattleModel.blackScreen2/3): the field darkens behind the fighters from `delay` seconds after the skill starts
+// until the attacker is done; with `hideOthers` the fighters that are neither the attacker nor a target are not shown meanwhile
+export function blackOf(fx: Fx, effectBids: number[]): { delay: number; alpha: number; hideOthers: boolean } | null {
+  let found: { delay: number; alpha: number; hideOthers: boolean } | null = null;
+  for (const bid of effectBids) {
+    const k = fx.k?.[String(bid)];
+    if (!k) continue;
+    // the layer is shown once, so the first effect's opacity counts; any effect that hides the others does
+    found = { delay: found ? found.delay : k[0] / 30, alpha: found ? found.alpha : k[1], hideOthers: (found?.hideOthers ?? false) || k[2] === 1 };
+  }
+  return found;
+}
 
 export function effectInfo(fx: Fx, effectBid: number): EffectInfo | null {
   const i = fx.e[String(effectBid)];

@@ -19,8 +19,8 @@ export async function enterCity(app: App): Promise<void> {
   city.onBuilding(bd => app.toast(`${bd.name.replace("图标", "")}：暂未开放`)); // no building opens a page yet: say which one was tapped
 
   const formation = formationFeature(app);
-  const heroes = heroFeature(app, formation);
   const campaign = campaignFeature(app, formation);
+  const heroes = heroFeature(app, formation, campaign.battle);
   const bag = windows.define("page", async parent => {
     const b = await buildBackpackPage(parent);
     store.follow("bag", () => b.setItems(store.items, store.equips));

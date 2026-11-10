@@ -30,7 +30,7 @@ const ATTRS: [string, string][] = [
 const PERCENT = new Set(["crit_rate", "crit_ratio", "hit_magic", "dodge_magic", "hit_rate", "dodge_rate", "dam", "res", "cure", "be_cure", "tenacity", "dam_p", "dam_s", "res_p", "res_s"]);
 const shown = (key: string, v: number) => (PERCENT.has(key) ? `${v / 10}%` : String(v));
 
-export interface HeroDetail { root: Node; open(h: HeroInfo, attrs: Attrs | null): void; setAttrs(partnerId: number, attrs: Attrs): void; close(): void; onClose(f: () => void): void; onLevelUp(f: (h: HeroInfo) => void): void }
+export interface HeroDetail { root: Node; open(h: HeroInfo, attrs: Attrs | null): void; setAttrs(partnerId: number, attrs: Attrs): void; close(): void; onClose(f: () => void): void; onLevelUp(f: (h: HeroInfo) => void): void; onPreview(f: (h: HeroInfo) => void): void }
 
 export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
   const [win, table, models, skills] = await Promise.all([
@@ -249,6 +249,23 @@ export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
   label(upBtn, "升级", 0, 0, HorizontalTextAlignment.CENTER, 30, 180);
   upBtn.on(Node.EventType.TOUCH_END, () => { if (shownHero && shownHero.partner_id) levelUpFn(shownHero); });
   train.addChild(upBtn);
+  // the skill preview button under the skill icons: the battle scene casts the hero's skills one by one (skillpreview.ts)
+  let previewFn = (_h: HeroInfo) => {};
+  const prevBtn = new Node("skill_preview");
+  prevBtn.layer = root.layer;
+  prevBtn.addComponent(UITransform).setContentSize(240, 64);
+  prevBtn.setPosition(360, 196, 0);
+  const pg = prevBtn.addComponent(Graphics);
+  pg.fillColor = new Color(74, 51, 34, 235);
+  pg.roundRect(-120, -32, 240, 64, 14);
+  pg.fill();
+  pg.strokeColor = new Color(248, 194, 60, 255);
+  pg.lineWidth = 3;
+  pg.roundRect(-120, -32, 240, 64, 14);
+  pg.stroke();
+  label(prevBtn, "技能预览", 0, 0, HorizontalTextAlignment.CENTER, 30, 240);
+  prevBtn.on(Node.EventType.TOUCH_END, () => { if (shownHero) previewFn(shownHero); });
+  train.addChild(prevBtn);
   // base attributes: icon and value, as the train panel's attr_icon1..4 / attr_label1..4
   const BASE: [string, string, number][] = [["atk", "common_90021", 31], ["hp", "common_90022", 207], ["def", "common_90023", 382], ["speed", "common_90038", 515]];
   const baseText = BASE.map(([, frame, x]) => {
@@ -345,5 +362,6 @@ export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
     close,
     onClose(f) { closeFn = f; },
     onLevelUp(f) { levelUpFn = f; },
+    onPreview(f) { previewFn = f; },
   };
 }

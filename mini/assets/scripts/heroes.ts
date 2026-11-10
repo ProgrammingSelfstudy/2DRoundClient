@@ -4,15 +4,24 @@ import type { FormationFeature } from "./formation";
 import { buildHeroDetail } from "./herodetail";
 import { buildHeroLibrary } from "./herolibrary";
 import { HeroPage, buildHeroPage } from "./heropage";
+import type { BattleScene } from "./battlescene";
+import { buildSkillPreview } from "./skillpreview";
 import type { Win } from "./windows";
 
 export interface HeroFeature { page: Win<HeroPage> }
 
-export function heroFeature(app: App, formation: FormationFeature): HeroFeature {
+export function heroFeature(app: App, formation: FormationFeature, battle: Win<BattleScene>): HeroFeature {
   const { session, store, windows } = app;
+
+  // the skill preview over everything: the battle scene (the campaign's) casts the hero's skills at a dummy; closing it gives the scene its tap-to-leave back
+  const preview = windows.define("popup", async parent => buildSkillPreview(parent, await battle.get(), () => {
+    const b = battle.ready();
+    b?.onTap(() => b.show(false));
+  }), w => { if (w.root.active) w.close(); });
 
   const detail = windows.define("full", async parent => {
     const d = await buildHeroDetail(parent);
+    d.onPreview(h => attempt(app, async () => (await preview.front()).open(h.bid, h.star)));
     // the level button: 11003 raises the hero (the server pushes 11002 first, which the store takes), then the window shows the hero again
     d.onLevelUp(h => attempt(app, async () => {
       const r = await session.request(11003, { partner_id: h.partner_id }, 11003) as { result?: number; msg?: string };
