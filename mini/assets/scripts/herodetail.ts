@@ -5,6 +5,7 @@
 import { Color, Graphics, HorizontalTextAlignment, Label, Mask, Node, Sprite, UITransform, VerticalTextAlignment } from "cc";
 import { atlasFrame, hasFile, loadJson, spriteFrame } from "./cdn";
 import { LNode, buildLayout, opaqueBase } from "./ui";
+import { dragScroll } from "./widgets";
 import { W, H } from "./design";
 import { spineNode } from "./spine";
 
@@ -123,10 +124,7 @@ export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
   skillContent.addComponent(UITransform).setAnchorPoint(0.5, 1);
   skillView.addChild(skillContent);
   container.addChild(skillView);
-  let skillMax = 0;
-  skillView.on(Node.EventType.TOUCH_MOVE, (e: { getUIDelta(): { y: number } }) => {
-    skillContent.setPosition(0, Math.min(180 + skillMax, Math.max(180, skillContent.position.y + e.getUIDelta().y)), 0);
-  });
+  const skillScroll = dragScroll(skillView, skillContent, "y");
 
   const drawSkills = (bid: number, star: number) => {
     skillContent.removeAllChildren();
@@ -168,7 +166,7 @@ export async function buildHeroDetail(canvas: Node): Promise<HeroDetail> {
     });
     if (!ids.length) label(skillContent, "暂无技能资料", 0, -60, HorizontalTextAlignment.CENTER);
     skillContent.getComponent(UITransform)!.setContentSize(680, Math.max(360, y));
-    skillMax = Math.max(0, y - 360);
+    skillScroll.range(180, 180 + Math.max(0, y - 360));
     skillContent.setPosition(0, 180, 0);
   };
 

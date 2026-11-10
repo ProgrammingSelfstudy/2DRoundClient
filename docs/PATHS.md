@@ -61,3 +61,22 @@ sh pipeline/sync_docs.sh        # 把 reports 下的 .md 汇总同步到 docs/re
 ```
 
 进度页：`python3 -m http.server 8765 --bind 127.0.0.1 --directory $ASSETS/reports`，打开 http://127.0.0.1:8765/index.html 。
+
+## mini 的代码分层（`mini/assets/scripts/`）
+
+从下往上，上层只用下层：
+
+| 层 | 文件 | 管什么 |
+|---|---|---|
+| 协议 | `shared/`（由 `web/src` 生成，改 `web/src` 后跑 `python3 shared/sync_ts.py`） | 连接、编解码、签名、请求和推送 |
+| 资源 | `cdn.ts`、`spine.ts`、`ui.ts`（按布局建界面）、`widgets.ts`（公共控件，现在是拖动滚动） | 发布包里的文件怎么变成节点 |
+| 应用 | `app.ts`、`windows.ts`（窗口管理）、`store.ts`（玩家数据）、`design.ts`（设计尺寸和写死的关卡常量） | 页面共用的东西 |
+| 画面 | `*page.ts`、`*window.ts`、`battlescene.ts` 等 `build…()` | 只管画和回调，不发协议 |
+| 功能 | `heroes.ts`、`campaign.ts`、`formation.ts`，由 `game.ts` 组装 | 定义自己的窗口、发自己的协议、订阅数据 |
+| 启动 | `boot.ts` | 适配屏幕、取资源版本、登录，然后交给 `game.ts` |
+
+加一个新系统：写画面的 `build…()`，再写一个功能文件，在里面用 `windows.define(层, 构建, 关闭)` 登记窗口（第一次打开时才创建），要的数据从 `store` 读并用 `store.follow(主题, 重画)` 跟着变，最后在 `game.ts` 里接上入口。`boot.ts` 不用动。
+
+窗口的层（下到上）：`scene` 主城、`page` 底部页签的页、`full` 全屏窗口（切页签时关掉）、`battle` 战斗、`bar` 顶栏和页签、`popup` 弹窗、`tip` 提示。
+
+调试开关（`?bagdemo=1` 等）都在 `devtools.ts`。

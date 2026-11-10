@@ -4,6 +4,7 @@
 import { Color, Graphics, HorizontalTextAlignment, Label, Mask, Node, Sprite, UITransform, VerticalTextAlignment } from "cc";
 import { loadJson, spriteFrame } from "./cdn";
 import { LNode, buildLayout, blockInput } from "./ui";
+import { dragScroll } from "./widgets";
 import { W, H, FIRST_STAGE, chapterMap } from "./design";
 import type { Msg } from "./shared/proto/codec";
 
@@ -97,10 +98,7 @@ export async function buildDramaPage(canvas: Node): Promise<DramaPage> {
   strip.layer = scroll.layer;
   strip.addComponent(UITransform).setContentSize(0, 0);
   scroll.addChild(strip);
-  let minX = 0;
-  scroll.on(Node.EventType.TOUCH_MOVE, (e: { getUIDelta(): { x: number } }) => {
-    strip.setPosition(Math.min(0, Math.max(minX, strip.position.x + e.getUIDelta().x)), 0, 0);
-  });
+  const drag = dragScroll(scroll, strip, "x");
 
   const addItem = (id: number, count: number, parent: Node, x: number, y: number, size: number, withCount: boolean) => {
     const n = new Node(`item_${id}`);
@@ -160,7 +158,7 @@ export async function buildDramaPage(canvas: Node): Promise<DramaPage> {
     st[2].forEach(([id, n], i) => {
       icons.push(addItem(id, n, strip, 5 + 30 + i * (60 + 10), w.height / 2, 60, true));
     });
-    minX = Math.min(0, w.width - (st[2].length * 70 + 5));
+    drag.range(Math.min(0, w.width - (st[2].length * 70 + 5)), 0);
     strip.setPosition(0, 0, 0);
   };
 

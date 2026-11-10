@@ -4,6 +4,7 @@
 import { Color, HorizontalTextAlignment, Label, Mask, Node, Sprite, UITransform, VerticalTextAlignment } from "cc";
 import { loadJson, spriteFrame } from "./cdn";
 import { LNode, buildLayout, blockInput } from "./ui";
+import { dragScroll } from "./widgets";
 import { W, H } from "./design";
 import type { Msg } from "./shared/proto/codec";
 
@@ -42,10 +43,7 @@ export async function buildHookReward(canvas: Node): Promise<HookReward> {
   strip.layer = list.layer;
   strip.addComponent(UITransform).setContentSize(0, 0);
   list.addChild(strip);
-  let minY = 0;
-  list.on(Node.EventType.TOUCH_MOVE, (e: { getUIDelta(): { y: number } }) => {
-    strip.setPosition(0, Math.max(0, Math.min(minY, strip.position.y + e.getUIDelta().y)), 0);
-  });
+  const scroll = dragScroll(list, strip, "y");
   const text = (parent: Node, str: string, y: number, size: number, color: Color, outline: boolean) => {
     const n = new Node("label");
     n.layer = parent.layer;
@@ -83,7 +81,7 @@ export async function buildHookReward(canvas: Node): Promise<HookReward> {
       cell.setPosition(START_X + CELL_W / 2 + col * (CELL_W + SPACE_X) - lw / 2, -CELL_H / 2 - line * (CELL_H + SPACE_Y), 0); // list_view's anchor is (0.5, 1): y runs down from its top edge
       strip.addChild(cell);
     });
-    minY = Math.max(0, Math.ceil(rows.length / 4) * (CELL_H + SPACE_Y) - SPACE_Y - lh);
+    scroll.range(0, Math.max(0, Math.ceil(rows.length / 4) * (CELL_H + SPACE_Y) - SPACE_Y - lh));
     strip.setPosition(0, 0, 0);
   };
 

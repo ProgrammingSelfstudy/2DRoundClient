@@ -7,6 +7,7 @@ import { atlasFrame, loadJson, spriteFrame } from "./cdn";
 import { CELL, Hero, PartnerTable, heroCellMaker } from "./herocell";
 import { listed } from "./herofilter";
 import { LNode, buildLayout, opaqueBase } from "./ui";
+import { dragScroll } from "./widgets";
 import { W, H } from "./design";
 
 export type Msg = { [key: string]: unknown };
@@ -101,10 +102,7 @@ export async function buildFormPanel(canvas: Node, notify: (text: string) => voi
   content.layer = view.layer;
   content.addComponent(UITransform).setContentSize(vt.width, 0);
   view.addChild(content);
-  let minY = 0, maxY = 0;
-  view.on(Node.EventType.TOUCH_MOVE, (e: { getUIDelta(): { y: number } }) => {
-    content.setPosition(0, Math.min(maxY, Math.max(minY, content.position.y + e.getUIDelta().y)), 0);
-  });
+  const scroll = dragScroll(view, content, "y");
   const listMaker = heroCellMaker(table, view.layer, toggle);
 
   const place = (h: Hero) => {
@@ -160,9 +158,9 @@ export async function buildFormPanel(canvas: Node, notify: (text: string) => voi
       if (slots.some(s => s?.partner_id === h.partner_id)) c.addComponent(UIOpacity).opacity = 110;
       content.addChild(c);
     });
-    minY = vt.height / 2;
-    maxY = minY + Math.max(0, contentH - vt.height);
-    content.setPosition(0, minY, 0);
+    const top = vt.height / 2;
+    scroll.range(top, top + Math.max(0, contentH - vt.height));
+    content.setPosition(0, top, 0);
   };
 
   // the camp filter: the ring moves onto the tapped camp and the list shows that camp only

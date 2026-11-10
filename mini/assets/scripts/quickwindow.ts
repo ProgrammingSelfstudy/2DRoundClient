@@ -4,6 +4,7 @@
 import { Color, HorizontalTextAlignment, Label, Mask, Node, Sprite, UITransform, VerticalTextAlignment } from "cc";
 import { atlasFrame, loadJson, spriteFrame } from "./cdn";
 import { LNode, buildLayout, blockInput } from "./ui";
+import { dragScroll } from "./widgets";
 import { W, H } from "./design";
 import type { Msg } from "./shared/proto/codec";
 
@@ -81,10 +82,7 @@ export async function buildQuickWindow(canvas: Node): Promise<QuickWindow> {
   strip.layer = list.layer;
   strip.addComponent(UITransform).setContentSize(0, 0);
   list.addChild(strip);
-  let minY = 0;
-  list.on(Node.EventType.TOUCH_MOVE, (e: { getUIDelta(): { y: number } }) => {
-    strip.setPosition(0, Math.max(0, Math.min(minY, strip.position.y + e.getUIDelta().y)), 0);
-  });
+  const scroll = dragScroll(list, strip, "y");
   const fillDrops = (maxDunId: number, addMinutes: number) => {
     strip.removeAllChildren();
     const st = stages[String(maxDunId)];
@@ -103,7 +101,7 @@ export async function buildQuickWindow(canvas: Node): Promise<QuickWindow> {
       text(cell, String(num), CELL / 2 - 8, -CELL / 2 + 16, 22, white, 1, 0.5, 100).enableOutline = true;
       strip.addChild(cell);
     });
-    minY = Math.max(0, Math.ceil(shown.length / 4) * ROW_H - lh);
+    scroll.range(0, Math.max(0, Math.ceil(shown.length / 4) * ROW_H - lh));
     strip.setPosition(0, 0, 0);
   };
 

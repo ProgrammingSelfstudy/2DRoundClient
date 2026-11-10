@@ -5,6 +5,7 @@ import { loadJson, spriteFrame } from "./cdn";
 import { CELL, Hero, PartnerTable, heroCellMaker } from "./herocell";
 import { listed } from "./herofilter";
 import { LNode, buildLayout, opaqueBase } from "./ui";
+import { dragScroll } from "./widgets";
 import { W, H } from "./design";
 
 const COLS = 5;
@@ -77,11 +78,7 @@ export async function buildHeroPage(canvas: Node): Promise<HeroPage> {
   content.layer = view.layer;
   content.addComponent(UITransform).setContentSize(vt.width, 0);
   view.addChild(content);
-  let minY = 0, maxY = 0;
-  view.on(Node.EventType.TOUCH_MOVE, (e: { getUIDelta(): { y: number } }) => {
-    const y = Math.min(maxY, Math.max(minY, content.position.y + e.getUIDelta().y));
-    content.setPosition(0, y, 0);
-  });
+  const scroll = dragScroll(view, content, "y");
 
   const makeCell = heroCellMaker(table, view.layer, h => tapHero(h));
 
@@ -105,9 +102,9 @@ export async function buildHeroPage(canvas: Node): Promise<HeroPage> {
       c.setPosition(x0 + (i % COLS) * CELL, -CELL / 2 - Math.floor(i / COLS) * CELL, 0);
       content.addChild(c);
     });
-    minY = vt.height / 2;
-    maxY = minY + Math.max(0, contentH - vt.height);
-    content.setPosition(0, minY, 0);
+    const top = vt.height / 2;
+    scroll.range(top, top + Math.max(0, contentH - vt.height));
+    content.setPosition(0, top, 0);
     if (count) count.string = cap ? `${everyone.length}/${cap}` : String(everyone.length);
   };
   renderHeroes = render;

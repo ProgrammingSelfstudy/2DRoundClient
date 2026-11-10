@@ -8,6 +8,7 @@ import { atlasFrame, hasFile, loadJson, spriteFrame } from "./cdn";
 import { listed } from "./herofilter";
 import type { PartnerTable } from "./herocell";
 import { LNode, buildLayout, opaqueBase } from "./ui";
+import { dragScroll } from "./widgets";
 import { W, H } from "./design";
 import { spineNode } from "./spine";
 
@@ -60,13 +61,7 @@ export async function buildHeroLibrary(canvas: Node): Promise<HeroLibrary> {
   const ct = content.addComponent(UITransform);
   ct.setAnchorPoint(0.5, 1);
   view.addChild(content);
-  let minY = 0, maxY = 0, moved = 0;
-  view.on(Node.EventType.TOUCH_START, () => { moved = 0; });
-  view.on(Node.EventType.TOUCH_MOVE, (e: { getUIDelta(): { y: number } }) => {
-    const dy = e.getUIDelta().y;
-    moved += Math.abs(dy);
-    content.setPosition(0, Math.min(maxY, Math.max(minY, content.position.y + dy)), 0);
-  });
+  const scroll = dragScroll(view, content, "y");
 
   const text = (parent: Node, s: string, x: number, y: number, size: number, color: Color, align = HorizontalTextAlignment.LEFT) => {
     const n = new Node("text");
@@ -111,7 +106,7 @@ export async function buildHeroLibrary(canvas: Node): Promise<HeroLibrary> {
       // the model stands on the bottom of the card (the node is 0.6 scaled and centred on the card, whose picture is 320x521)
       if (model) spineNode(`spine/hero/${model}/stand2`, "stand2", icon).then(s => { s.node.setScale(2.2, 2.2, 1); s.node.setPosition(0, -235, 0); }, () => {});
     }
-    r.on(Node.EventType.TOUCH_END, () => { if (moved < 12) tapHero(bid, star); });
+    r.on(Node.EventType.TOUCH_END, () => { if (scroll.moved() < 12) tapHero(bid, star); });
     return r;
   };
 
@@ -152,9 +147,9 @@ export async function buildHeroLibrary(canvas: Node): Promise<HeroLibrary> {
     }
     const total = rows.length ? y + ITEM_H : 0;
     ct.setContentSize(vt.width, Math.max(vt.height, total));
-    minY = vt.height / 2;
-    maxY = minY + Math.max(0, total - vt.height);
-    content.setPosition(0, minY, 0);
+    const top = vt.height / 2;
+    scroll.range(top, top + Math.max(0, total - vt.height));
+    content.setPosition(0, top, 0);
     for (const p of placed) {
       const r = await card(p.bid, p.row);
       if (seq !== drawn) { r.destroy(); return; } // another camp was chosen while the cards were being built

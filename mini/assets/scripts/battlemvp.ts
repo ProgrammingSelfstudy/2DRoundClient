@@ -5,6 +5,7 @@
 import { Color, HorizontalTextAlignment, Label, Mask, Node, Sprite, UITransform, VerticalTextAlignment } from "cc";
 import { atlasFrame, loadJson, spriteFrame } from "./cdn";
 import { LNode, buildLayout, blockInput } from "./ui";
+import { dragScroll } from "./widgets";
 import type { Msg } from "./shared/proto/codec";
 
 type ItemTable = { [id: string]: [string, number, number, number] };
@@ -128,10 +129,7 @@ export async function buildMvpWindow(canvas: Node): Promise<MvpWindow> {
   strip.addComponent(UITransform).setContentSize(0, 0);
   strip.setPosition(0, 240, 0); // the strip's origin is the list's top edge; children hang below it
   list.addChild(strip);
-  let minY = 0;
-  list.on(Node.EventType.TOUCH_MOVE, (e: { getUIDelta(): { y: number } }) => {
-    strip.setPosition(0, Math.max(240, Math.min(240 + minY, strip.position.y + e.getUIDelta().y)), 0);
-  });
+  const scroll = dragScroll(list, strip, "y");
   const fillRewards = (rows: { bid: number; num: number }[]) => {
     strip.removeAllChildren();
     const perRow = Math.min(4, rows.length);
@@ -151,7 +149,7 @@ export async function buildMvpWindow(canvas: Node): Promise<MvpWindow> {
       strip.addChild(cell);
     });
     const lines = Math.ceil(rows.length / 4);
-    minY = Math.max(0, lines * (CELL + SPACE_Y) + 20 - 240);
+    scroll.range(240, 240 + Math.max(0, lines * (CELL + SPACE_Y) + 20 - 240));
     // a single row sits in the middle of the list
     if (lines === 1) strip.children.forEach(c => c.setPosition(c.position.x, -120, 0));
     strip.setPosition(0, 240, 0);
