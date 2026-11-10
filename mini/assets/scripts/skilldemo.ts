@@ -3,12 +3,12 @@
 // It uses the scene's own play(), so what it shows is what a fight shows. Progress is kept in window.__skilldemo for scripted checks.
 import { loadJson } from "./cdn";
 import { chapterMap } from "./design";
-import { attackOf, effectInfo } from "./skillplan";
+import { attackOf, effectInfo, hitsSelf } from "./skillplan";
 import type { Fx } from "./skillplan";
 import type { BattleScene } from "./battlescene";
 import type { Msg } from "./shared/proto/codec";
 
-interface HeroSkills { h: { [heroStar: string]: [string, number[]] }; k: { [skill: string]: [string, number[]] } }
+interface HeroSkills { h: { [heroStar: string]: [string, number[]] }; k: { [skill: string]: [string, number[]] }; a?: { [skill: string]: [string, number[]] } } // a: every skill row with effects
 export interface DemoStep { hero: string; model: string; skill: number; name: string; anim: string; effects: number; ms: number }
 export interface DemoHero { hero: string; model: string; disc: boolean; skills: number }
 
@@ -63,15 +63,17 @@ export async function runSkillDemo(scene: BattleScene, spec: string): Promise<vo
 // active plays through the scene's own play() as in skilldemo; a passive has no cast animation in the client's tables, so its name and text show.
 interface SkillInfo { h: { [heroStar: string]: number[] }; k: { [skill: string]: [string, string, string, number, string] } }
 
-export async function runSkillButtons(scene: BattleScene, hero: string): Promise<void> {
+// ?skillbtn=70501_5:541314,541104 puts a button on each skill number after the colon instead of the hero's own, any skill number being playable.
+export async function runSkillButtons(scene: BattleScene, spec: string): Promise<void> {
+  const [hero, extra] = spec.split(":");
   const [fx, table, info] = await Promise.all([loadJson<Fx>("tables/skill_fx.json"), loadJson<HeroSkills>("tables/hero_skills.json"), loadJson<SkillInfo>("tables/hero_skill_info.json")]);
   const [bid, star] = hero.split("_").map(Number);
   let key = hero, st = star;
   while (!info.h[key] && st > 1) key = `${bid}_${--st}`; // the highest star of the hero the table has at or below the one asked for
-  const ids = info.h[key] ?? [];
+  const ids = extra ? [0, ...extra.split(",").filter(Boolean).map(Number)] : info.h[key] ?? [];
   const kinds = [0, 0]; // how many actives and passives have been named so far
   const buttons: [string, number][] = ids.slice(1).map(id => {
-    const passive = info.k[String(id)][3] ? 1 : 0;
+    const passive = info.k[String(id)]?.[3] ? 1 : 0;
     return [`${passive ? "被动" : "主动"}${++kinds[passive]}`, id];
   });
   const opening = {
@@ -88,15 +90,15 @@ export async function runSkillButtons(scene: BattleScene, hero: string): Promise
   const cast = async (sid: number, label: string) => {
     if (busy) return;
     busy = true;
-    const [name, text] = info.k[String(sid)];
-    const row = table.k[String(sid)];
+    const row = table.a?.[String(sid)] ?? table.k[String(sid)];
+    const [name, text] = info.k[String(sid)] ?? [row?.[0] ?? String(sid), ""];
     if (row) {
       const effects = row[1];
       scene.caption(`${label} ${name} ${sid}  ${attackOf(fx, sid, effects).anim}`);
       await scene.play([{
         order: 1, actor: MINE, target: THEIRS, skill_bid: sid, talk_pos: 0, talk_content: "",
         effect_play: effects.map((effect_bid, i) => ({
-          order: i + 1, actor: MINE, target: THEIRS, effect_bid, is_hit: 1, is_crit: 0, hp: HP,
+          order: i + 1, actor: MINE, target: hitsSelf(fx, effect_bid) ? MINE : THEIRS, effect_bid, is_hit: 1, is_crit: 0, hp: HP,
           hp_changed: effectInfo(fx, effect_bid)?.noHurt ? 0 : -1000, is_dead: 0, buff_list: [],
         })),
       }] as unknown as Msg[]);

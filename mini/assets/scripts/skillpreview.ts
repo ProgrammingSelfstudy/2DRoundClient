@@ -10,7 +10,7 @@ import type { Fx } from "./skillplan";
 import type { BattleScene } from "./battlescene";
 import type { Msg } from "./shared/proto/codec";
 
-interface HeroSkills { k: { [skill: string]: [string, number[]] } } // hero_skills.json: skill -> name, effect bids
+interface HeroSkills { k: { [skill: string]: [string, number[]] }; a?: { [skill: string]: [string, number[]] } } // k: the heroes' active skills; a: every skill row with effects, whoever has it // hero_skills.json: skill -> name, effect bids
 interface SkillInfo { h: { [heroStar: string]: number[] }; k: { [skill: string]: [string, string, string, number, string] } } // name, text, icon, passive, note
 
 const MINE = 2, THEIRS = 11; // positions: my front middle and the enemy's first, in the same row (the grid of battlescene.ts)
@@ -84,8 +84,8 @@ export async function buildSkillPreview(parent: Node, scene: BattleScene, afterC
     if (busy) return;
     busy = true;
     try {
-      const [name, text] = info.k[String(sid)];
-      const row = table.k[String(sid)];
+      const row = table.a?.[String(sid)] ?? table.k[String(sid)]; // by the skill's own row, not by what a hero lists
+      const [name, text] = info.k[String(sid)] ?? [row?.[0] ?? String(sid), ""];
       if (row) {
         const effects = row[1];
         scene.caption(`${name}  ${attackOf(fx, sid, effects).anim}`);

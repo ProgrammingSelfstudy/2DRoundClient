@@ -2,7 +2,9 @@
 """The skills of each hero, for the skill demo page and check_skill_anims.py: from the restored Lua tables
 
   h  "<bid>_<star>" -> [model, [skill bid, ...]]   (partner_data.lua, data_partner_star_table; only the active skills)
-  k  skill bid -> [name, [effect bid, ...]]        (skill_data*.lua, data_get_skill_table: name, effect_list)
+  k  skill bid -> [name, [effect bid, ...]]        (skill_data*.lua, data_get_skill_table: name, effect_list) of the heroes' active skills
+  a  the same for every skill row that has an effect list, whoever has it (the form variants like 541314 that no hero lists, monsters' skills):
+     what a skill does is the skill's own row, never a hero's, so a preview can play any skill number
 
 The battle never reads this table; the demo page (?skilldemo=10401_4) plays every skill of a hero in turn so each can be looked at.
 
@@ -58,10 +60,11 @@ def table(lua_dir):
                 k[str(sid)] = [sk[1], sk[13]]
         h[key] = [row[2], active]
     assert len(h) > 2000, len(h)  # 2216 hero stars
-    return {"h": h, "k": k}
+    a = {sid: [sk[1], sk[13]] for sid, sk in skills.items() if isinstance(sk[13], list) and sk[13]}
+    return {"h": h, "k": k, "a": a}
 
 
 if __name__ == "__main__":
     t = table(sys.argv[1])
     json.dump(t, open(sys.argv[2], "w"), ensure_ascii=False, separators=(",", ":"))
-    print(len(t["h"]), "hero stars,", len(t["k"]), "active skills,", len(UNPARSED), "rows unread")
+    print(len(t["h"]), "hero stars,", len(t["k"]), "active skills,", len(t["a"]), "skills with effects,", len(UNPARSED), "rows unread")
