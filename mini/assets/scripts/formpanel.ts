@@ -1,9 +1,13 @@
 // The formation window of the campaign: the original `hero/form_go_fight_panel` (FormGoFightPanel) in its main-line mode. Six positions stand on a
 // 3x3 grid, each on the cell its formation type gives; the heroes of the bag are listed below and tapping one puts it in the first free position (a
 // second tap, or a tap on the hero in its position, takes it out). "保存布阵" sends 11212, "开战" saves and then lets the caller start the fight.
-// Not built: the formation change (阵法) window, the halo, the elfin, one-key setup, the other tabs and modes of the original.
-import { Color, Label, Mask, Node, Sprite, UIOpacity, UITransform } from "cc";
-import { atlasFrame, loadJson, spriteFrame } from "./cdn";
+// Modes as in FormGoFightPanel.setShowTypeUI: opened from the stage's boss button (fight mode) it has one tab 队伍 and the fight button; opened from the
+// hero page (save mode) it has the tabs of data_partner_form (主线剧情, 竞技场防守, 冠军赛防守, 天梯赛防守) and 一键上阵 and 保存布阵.
+// The heroes stand on the pedestals as Spine models (createHeroSpine). Not built: the formation change (阵法) window, the halo, the elfin and the
+// artifact slots (they answer "not open"), dragging a hero between positions, the other tabs of the table.
+import { Color, Label, Mask, Node, Sprite, UIOpacity, UITransform, instantiate } from "cc";
+import { atlasFrame, hasFile, loadJson, spriteFrame } from "./cdn";
+import { spineNode } from "./spine";
 import { CELL, Hero, PartnerTable, heroCellMaker } from "./herocell";
 import { listed } from "./herofilter";
 import { LNode, buildLayout, opaqueBase } from "./ui";
@@ -11,7 +15,10 @@ import { dragScroll } from "./widgets";
 import { W, H } from "./design";
 
 export type Msg = { [key: string]: unknown };
-export interface Formation { formation_type: number; slots: (Hero | null)[] } // slots[0..5] are positions 1..6
+export interface Formation { kind: number; formation_type: number; slots: (Hero | null)[] } // kind: the 11211/11212 type of the tab; slots[0..5] are positions 1..6
+// data_partner_form: the tabs of the save mode (the first four rows of the table)
+const TABS = [{ kind: 0, name: "主线剧情" }, { kind: 1, name: "竞技场防守" }, { kind: 6, name: "冠军赛防守" }, { kind: 9, name: "天梯赛防守" }];
+interface Models { p: { [bidStar: string]: string } }
 
 // data_form_data of the client: for each formation type, the cell (1-9) each position 1-6 stands on; the server (formation.go) holds the same table
 const CELLS: { [type: number]: number[] } = {
@@ -25,15 +32,16 @@ export interface FormPanel {
   root: Node;
   open(formation: Msg, heroes: Hero[], canFight?: boolean): void; // canFight false: the hero page's mode, save only (HeroConst.FormShowType.eFormSave)
   close(): void;
+  onTab(f: (kind: number) => Promise<Msg>): void; // reads the formation of another tab (11211)
   onSave(f: (f: Formation) => Promise<boolean>): void;
   onFight(f: (f: Formation) => void): void;
 }
 
 export async function buildFormPanel(canvas: Node, notify: (text: string) => void): Promise<FormPanel> {
-  const [win, table] = await Promise.all([loadJson<LNode>("layouts/hero/form_go_fight_panel.json"), loadJson<PartnerTable>("tables/partners.json")]);
+  const [win, table, models] = await Promise.all([loadJson<LNode>("layouts/hero/form_go_fight_panel.json"), loadJson<PartnerTable>("tables/partners.json"), loadJson<Models>("tables/battle_models.json")]);
   const built = await buildLayout(win, canvas, {
-    // tabs, the team tabs, the empty-list notice, the side buttons (formation change, halo, equipment, elfin), one-key setup and "skip battle" belong to modes not built
-    hide: ["tab_btn", "team_tab_btn", "no_vedio_image", "no_vedio_label", "txt_cn_common_notice_1", "form_change_btn", "halo_btn", "equip_btn", "elfin_btn", "key_up_btn", "checkbox", "power_click"],
+    // the team tabs (arena-like modes), the empty-list notice and "skip battle" belong to modes not built
+    hide: ["team_tab_btn", "no_vedio_image", "no_vedio_label", "txt_cn_common_notice_1", "checkbox"],
   });
   const root = built.root;
   root.setPosition(-W / 2, -H / 2, 0);
@@ -52,27 +60,38 @@ export async function buildFormPanel(canvas: Node, notify: (text: string) => voi
   node("win_title").getComponent(Label)!.string = "英雄出战";
   node("close_btn").on(Node.EventType.TOUCH_END, () => close());
 
-  // the two buttons sat on top of each other in the layout (the original shows one of them per mode): save on the left, fight on the right
-  const save = node("save_btn"), fight = node("fight_btn");
-  save.setPosition(190, save.position.y, 0);
-  fight.setPosition(486, fight.position.y, 0);
+  // the original shows one of save/fight per mode (setShowTypeUI); the layout puts both near the middle, 一键上阵 beside the save button
+  const save = node("save_btn"), fight = node("fight_btn"), keyUp = node("key_up_btn");
   save.getChildByName("label")!.getComponent(Label)!.string = "保存布阵";
   fight.getChildByName("label")!.getComponent(Label)!.string = "开 战";
+  keyUp.getChildByName("label")!.getComponent(Label)!.string = "一键上阵";
+  const saveX = save.position.x;
 
-  // power: the sum of the heroes in the positions, drawn where power_click sat
+  // the side buttons: formation change, halo, artifact (点击装配) and elfin (点击调整) — drawn, they answer "not open"
+  node("form_change_btn").getChildByName("label")!.getComponent(Label)!.string = "更换";
+  node("equip_btn").getChildByName("label")!.getComponent(Label)!.string = "点击装配";
+  node("elfin_btn").getChildByName("label")!.getComponent(Label)!.string = "点击调整";
+  for (const n of ["form_change_btn", "halo_btn", "equip_btn", "elfin_btn"]) {
+    node(n).on(Node.EventType.TOUCH_END, () => notify(n === "form_change_btn" ? "阵法更换暂未开放" : "暂未开放"));
+  }
+
+  // power: CommonNum in the original, a label here at its place in power_click (24, 29)
   const formPanel = node("form_panel");
   const powerNode = new Node("power");
   powerNode.layer = formPanel.layer;
-  powerNode.addComponent(UITransform).setContentSize(260, 40);
-  powerNode.setPosition(155, 886, 0);
+  powerNode.addComponent(UITransform).setContentSize(160, 40);
+  powerNode.getComponent(UITransform)!.setAnchorPoint(0, 0.5);
+  powerNode.setPosition(24 - 100, 29 - 20, 0);
   const power = powerNode.addComponent(Label);
   power.fontSize = 28;
   power.lineHeight = 32;
+  power.horizontalAlign = Label.HorizontalAlign.LEFT;
   power.overflow = Label.Overflow.NONE;
   power.enableOutline = true;
   power.outlineColor = new Color(40, 20, 10, 255);
   power.outlineWidth = 2;
-  formPanel.addChild(powerNode);
+  node("power_click").addChild(powerNode);
+  node("pos_tips").getComponent(Label)!.string = "从列表选择英雄，长按英雄可查看英雄详细信息";
 
   const stage = node("fight_hero_node");
   const bars = [1, 2, 3, 4, 5, 6].map(i => stage.getChildByName(`hero_info_21_${i}`)!); // the pedestal under each position
@@ -86,13 +105,14 @@ export async function buildFormPanel(canvas: Node, notify: (text: string) => voi
     const i = slots.findIndex(s => s?.partner_id === h.partner_id);
     if (i >= 0) { slots[i] = null; redraw(); } else place(h);
   };
-  const makeCell = heroCellMaker(table, stage.layer, toggle);
+  const makeCell = heroCellMaker(table, stage.layer); // the cell of a hero without a model; the tap is the standing node's
 
-  let formationType = 1, everyone: Hero[] = [], campFilter = 0;
+  let formationType = 1, kind = 0, everyone: Hero[] = [], campFilter = 0;
   let slots: (Hero | null)[] = Array(MAX).fill(null);
   let saveFn: (f: Formation) => Promise<boolean> = async () => true, fightFn: (f: Formation) => void = () => {};
+  let tabFn: (kind: number) => Promise<Msg> = async () => ({});
 
-  const current = (): Formation => ({ formation_type: formationType, slots: slots.slice() });
+  const current = (): Formation => ({ kind, formation_type: formationType, slots: slots.slice() });
 
   // the hero list below: a clipped viewport and a content node dragged inside it, as on the hero page
   const view = node("lay_scrollview");
@@ -114,17 +134,36 @@ export async function buildFormPanel(canvas: Node, notify: (text: string) => voi
 
   // the empty-position tile of the hero atlas, shared by the six positions
   const tile = atlasFrame("ui/hero/hero.json", "hero_info_21.png");
+  // the formation icon of the change button: form_icon_<formation type> of the form atlas
+  const formIcon = node("form_change_btn").getChildByName("form_icon")!.getComponent(Sprite)!;
+
+  // the hero stands on its pedestal as its battle_stand model (createHeroSpine puts it 10 right of and 40 below the cell's centre)
+  const standOf = (h: Hero, x: number, y: number): Node => {
+    const hit = new Node(`hero_${h.bid}`);
+    hit.layer = stage.layer;
+    hit.addComponent(UITransform).setContentSize(CELL, CELL * 1.3);
+    hit.setPosition(x, y, 0);
+    hit.on(Node.EventType.TOUCH_END, () => toggle(h));
+    const model = models.p[`${h.bid}_${h.star}`];
+    if (model && hasFile(`spine/hero/${model}/stand2.json`)) {
+      spineNode(`spine/hero/${model}/stand2`, "stand2", hit).then(sk => { if (hit.isValid) sk.node.setPosition(10, -40, 0); }, e => console.warn(`formation ${model}:`, (e as Error).message));
+    } else {
+      const c = makeCell(h); // a hero the release carries no model of stands as its head cell
+      c.setPosition(0, 40, 0);
+      hit.addChild(c);
+    }
+    return hit;
+  };
 
   const redraw = () => {
     slotLayer.removeAllChildren();
     const cells = CELLS[formationType] ?? CELLS[1];
+    atlasFrame("ui/form/form.json", `form_icon_${formationType}.png`).then(sf => { if (formIcon.isValid) formIcon.spriteFrame = sf; }, () => {});
     slots.forEach((h, i) => {
       const p = nine(cells[i]);
       bars[i].setPosition(p.x, p.y - 70, 0); // the pedestal stands 70 below its cell, as initFormationData sets it
       if (h) {
-        const c = makeCell(h);
-        c.setPosition(p.x, p.y, 0);
-        slotLayer.addChild(c);
+        slotLayer.addChild(standOf(h, p.x, p.y));
       } else {
         const t = new Node(`empty_${i + 1}`);
         t.layer = stage.layer;
@@ -136,7 +175,7 @@ export async function buildFormPanel(canvas: Node, notify: (text: string) => voi
         slotLayer.addChild(t);
       }
     });
-    power.string = `战力 ${slots.reduce((a, h) => a + (h?.power ?? 0), 0)}`;
+    power.string = String(slots.reduce((a, h) => a + (h?.power ?? 0), 0));
     drawList();
   };
 
@@ -175,6 +214,61 @@ export async function buildFormPanel(canvas: Node, notify: (text: string) => voi
     });
   });
 
+  // the tabs: a clone of the layout's cell per tab, the selected one shows select_img (updateCellByIndexTabBtn)
+  const tabBox = node("tab_btn");
+  const tabCell = tabBox.getChildByName("tab_btn_1")!;
+  let tabs: { cell: Node; kind: number }[] = [];
+  const mark = () => tabs.forEach(t => {
+    t.cell.getChildByName("select_img")!.active = t.kind === kind;
+    t.cell.getChildByName("normal_img")!.active = t.kind !== kind;
+  });
+  let loadSeq = 0;
+  const drawTabs = (list: { kind: number; name: string }[]) => {
+    for (const t of tabs) t.cell.destroy();
+    tabs = list.map((t, i) => {
+      const cell = instantiate(tabCell);
+      cell.active = true;
+      cell.setPosition(tabCell.position.x + i * 135 - 0, tabCell.position.y, 0);
+      cell.getChildByName("label")!.getComponent(Label)!.string = t.name;
+      cell.getChildByName("red_point")!.active = false;
+      cell.on(Node.EventType.TOUCH_END, async () => {
+        if (t.kind === kind) return;
+        const seq = ++loadSeq;
+        let reply: Msg;
+        try { reply = await tabFn(t.kind); } catch (e) { return notify((e as Error).message); }
+        if (seq !== loadSeq) return; // a later tap won
+        load(reply, t.kind);
+        redraw();
+      });
+      tabBox.addChild(cell);
+      return { cell, kind: t.kind };
+    });
+    mark();
+  };
+
+  // 11211: pos_info [{pos, id}] with the partner ids of the positions
+  const load = (formation: Msg, k: number) => {
+    kind = k;
+    formationType = Number(formation.formation_type) || 1;
+    slots = Array(MAX).fill(null);
+    const placed = (formation.pos_info as Msg[] | undefined) || [];
+    for (const p of placed) {
+      const pos = Number(p.pos), h = everyone.find(x => x.partner_id === Number(p.id));
+      if (h && pos >= 1 && pos <= MAX) slots[pos - 1] = h;
+    }
+    mark();
+  };
+
+  // 一键上阵: the strongest heroes not yet in a position fill the empty ones
+  keyUp.on(Node.EventType.TOUCH_END, () => {
+    const free = slots.map((s, i) => (s ? -1 : i)).filter(i => i >= 0);
+    if (!free.length) return notify("上阵英雄已满");
+    const rest = everyone.filter(h => listed(table, h.bid) && !slots.some(s => s?.partner_id === h.partner_id)).sort((a, b) => b.power - a.power || a.partner_id - b.partner_id);
+    if (!rest.length) return notify("没有可上阵的英雄");
+    free.forEach((pos, n) => { if (rest[n]) slots[pos] = rest[n]; });
+    redraw();
+  });
+
   save.on(Node.EventType.TOUCH_END, async () => {
     if (!slots.some(Boolean)) return notify("至少上阵一名英雄");
     if (await saveFn(current())) notify("保存成功");
@@ -189,24 +283,24 @@ export async function buildFormPanel(canvas: Node, notify: (text: string) => voi
   return {
     root,
     open(formation, heroes, canFight = true) {
+      // setShowTypeUI: fight mode has the fight button only, save mode the save button and 一键上阵
       fight.active = canFight;
-      save.setPosition(canFight ? 190 : 338, save.position.y, 0);
+      save.active = !canFight;
+      keyUp.active = !canFight;
+      fight.setPosition(saveX, fight.position.y, 0); // alone: in the middle
+      keyUp.setPosition(205, keyUp.position.y, 0); // together: 一键上阵 left, 保存布阵 right
+      save.setPosition(485, save.position.y, 0);
       everyone = heroes;
-      formationType = Number(formation.formation_type) || 1;
       campFilter = 0;
       const first = camp.getChildByName("camp_btn0")!;
       ring.setPosition(first.position.x - 0.5, first.position.y + 1, 0);
-      // 11211: pos_info [{pos, id}] with the partner ids of the positions
-      slots = Array(MAX).fill(null);
-      const placed = (formation.pos_info as Msg[] | undefined) || [];
-      for (const p of placed) {
-        const pos = Number(p.pos), h = heroes.find(x => x.partner_id === Number(p.id));
-        if (h && pos >= 1 && pos <= MAX) slots[pos - 1] = h;
-      }
+      load(formation, Number(formation.type) || 0);
+      drawTabs(canFight ? [{ kind: 0, name: "队伍" }] : TABS);
       redraw();
       root.active = true;
     },
     close,
+    onTab(f) { tabFn = f; },
     onSave(f) { saveFn = f; },
     onFight(f) { fightFn = f; },
   };
