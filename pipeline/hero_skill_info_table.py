@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""What the hero info window's skill page shows, from the restored Lua tables (the heroes this client lists: initial star 5 or more):
+"""What the hero info window's skill page shows for every catalog hero, from the restored Lua tables:
 
   h  "<bid>_<star>" -> [skill bid, ...]   (partner_data.lua, data_partner_star_table, column 13, in the table's slot order)
   k  skill bid -> [name, description, icon, passive (0 or 1), open note]
@@ -18,7 +18,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hero_skills_table import skill_rows, star_rows  # noqa: E402
 from partners_table import table as partners  # noqa: E402
 
-MIN_STAR = 5  # herofilter.ts MIN_HERO_STAR
 TAG = re.compile(r"<[^>]*>")  # the descriptions carry colour tags like <div fontcolor=45a536>..</div>
 
 
@@ -27,7 +26,7 @@ def table(lua_dir):
     h, k = {}, {}
     for key, row in stars.items():
         bid = key.split("_")[0]
-        if bid not in base or base[bid][2] < MIN_STAR:
+        if bid not in base:
             continue
         ids = []
         for _slot, sid in row[13]:

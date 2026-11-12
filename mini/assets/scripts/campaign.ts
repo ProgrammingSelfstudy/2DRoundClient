@@ -13,7 +13,7 @@ import { buildHookReward } from "./hookreward";
 import { buildQuickWindow } from "./quickwindow";
 
 export function campaignFeature(app: App, formation: FormationFeature) {
-  const { session, store, windows } = app;
+  const { session, store, windows, log } = app;
   // the frames of a fight are queued from the moment they arrive: the scene may still be loading when the server sends the first ones
   const feed = new Feed(session, [20027, 20002, 20004, 13016]);
 
@@ -41,12 +41,14 @@ export function campaignFeature(app: App, formation: FormationFeature) {
     if (fighting) return;
     fighting = true;
     try {
+      log.record("battle");
       feed.clear();
       const reply = await session.request(13003, { is_auto: 0 }, 13003);
       if (Number(reply.code) !== 1) return app.toast(String(reply.msg ?? "")); // no fight: the server says why
       const opening = (await feed.take([20027])).msg;
       const scene = await battle.front();
       const result = await runFight(session, feed, scene, opening, chapterMap(Number(store.drama?.chapter_id ?? 0)));
+      log.record(Number(result.result) === 1 ? "battleWon" : "battleLost");
       // the win or the defeat window over the battle, then back to the stage page
       if (Number(result.result) === 1) await (await mvp.front()).open(result);
       else await (await fail.front()).open();
@@ -67,10 +69,12 @@ export function campaignFeature(app: App, formation: FormationFeature) {
     let lev = store.role.lev;
     store.watch("role", () => { if (store.role.lev !== lev) { lev = store.role.lev; draw(); } }); // the boss button depends on the level
     p.onBoss(a => {
+      log.record("boss");
       if (a === "level") return app.toast("等级不足");
       attempt(app, a === "next" ? nextChapter : () => formation.open(fight));
     });
     p.onQuick(() => attempt(app, async () => {
+      log.record("quick");
       const state = await session.request(13006, {}, 13006);
       (await quick.front()).open(p.maxDunId() || FIRST_STAGE, state);
     }));

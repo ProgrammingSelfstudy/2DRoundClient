@@ -4,8 +4,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { attackOf, backTarget, effectInfo, hitEvent, hitShare, movePlan, moveTarget, shakeSteps } from "../../mini/assets/scripts/skillplan.ts";
-import type { Fx } from "../../mini/assets/scripts/skillplan.ts";
+import { attackOf, backTarget, effectInfo, hitEvent, hitShare, movePlan, moveTarget, previewCast, previewCasts, previewCell, previewOpening, previewZOrder, shakeSteps } from "../../mini/assets/scripts/skillplan.ts";
+import type { Fx, MovePlan } from "../../mini/assets/scripts/skillplan.ts";
 
 const ASSETS = process.env.ASSETS ?? join(import.meta.dirname, "../../../2DRoundAssets");
 const versions = existsSync(join(ASSETS, "build")) ? readdirSync(join(ASSETS, "build")).filter(v => /^dev\d+$/.test(v)).sort((a, b) => Number(a.slice(3)) - Number(b.slice(3))) : [];
@@ -16,6 +16,98 @@ const fx: Fx = have ? (() => {
   return JSON.parse(readFileSync(join(dir, "f", f.hash.slice(0, 2), `${f.hash}.json`), "utf8"));
 })() : ({} as Fx);
 const opts = { skip: have ? false : "no built release with tables/skill_fx.json" };
+
+test("preview builds visual-only casts with the original actor, ally and enemy targets", () => {
+  const table: Fx = { t: [], e: {}, g: {}, s: {}, m: {}, y: { "41": 4, "42": 7, "43": 2 } };
+  assert.deepEqual(previewOpening(table, 70501, 5, "索隆(和之国)", [[41, 42, 43, 44]]), {
+    objects: [
+      { object_type: 2, group: 1, pos: 5, object_bid: 70501, star: 5, object_name: "索隆(和之国)" },
+      { object_type: 3, group: 2, pos: 14, object_bid: 101011, star: 1, object_name: "木桩" },
+      { object_type: 3, group: 1, pos: 9, object_bid: 101011, star: 1, object_name: "友方木桩" },
+    ],
+  });
+  assert.deepEqual(previewCast(table, 541314, [41, 42, 43, 44]), {
+    order: 1, actor: 5, target: 5, skill_bid: 541314,
+    effect_play: [
+      { order: 1, actor: 5, target: 5, effect_bid: 41 },
+      { order: 2, actor: 5, target: 9, effect_bid: 42 },
+      { order: 3, actor: 5, target: 9, effect_bid: 43 },
+      { order: 4, actor: 5, target: 14, effect_bid: 44 },
+    ],
+  });
+});
+
+test("preview uses the original numbered formation cells and drawing order", () => {
+  assert.deepEqual(previewCell(5), [18, 21]);
+  assert.deepEqual(previewCell(14), [62, 21]);
+  assert.deepEqual(previewCell(9), [9, 27]);
+  assert.deepEqual(previewCell(7), [7, 15]);
+  assert.deepEqual(previewCell(18), [71, 27]);
+  assert.deepEqual(previewCell(31), [15, 43]);
+  assert.deepEqual(previewCell(32), [65, 43]);
+  assert.deepEqual(previewCell(41), [11, 39]);
+  assert.deepEqual(previewCell(42), [69, 39]);
+  assert.equal(previewCell(0), undefined);
+  assert.deepEqual([previewZOrder(5), previewZOrder(14), previewZOrder(9)], [996, 996, 991]);
+  assert.deepEqual([previewZOrder(31), previewZOrder(42)], [990, 989]);
+  assert.deepEqual([previewZOrder(5, true), previewZOrder(14, true), previewZOrder(9, true)], [998, 996, 998]);
+  assert.deepEqual([previewZOrder(31, true), previewZOrder(42, true)], [990, 989]);
+});
+
+test("preview keeps successive action phases and attaches unnamed effects without guessing", () => {
+  const table: Fx = {
+    t: [["", "", 0, "no-hurt", 1], ["skill1", "action", 0, "hurt", 1], ["skill2", "action", 0, "hurt", 1], ["skill1", "action2", 0, "hurt", 1]],
+    e: { "10": 0, "11": 1, "12": 1, "13": 2, "14": 3, "15": 2 }, g: {}, s: {}, m: {}, am: { "15": "none" },
+  };
+  const casts = previewCasts(table, 999101, [10, 11, 12, 10, 13, 10, 11, 14]);
+  assert.deepEqual(casts.map(cast => (cast.effect_play as { effect_bid: number }[]).map(e => e.effect_bid)), [[10, 11, 12, 10], [13, 10], [11], [14]]);
+  assert.deepEqual(casts.map(cast => cast.order), [1, 2, 3, 4]);
+  assert.deepEqual(previewCasts(table, 999101, [10, 10]), [previewCast(table, 999101, [10, 10])]);
+  assert.deepEqual(previewCasts(table, 999101, [11, 15, 12]), [previewCast(table, 999101, [11, 15, 12])]);
+  assert.deepEqual(previewCasts(table, 999101, []), [previewCast(table, 999101, [])]);
+});
+
+test("distinct original damage effects replay the same animation in separate phases", () => {
+  const combos = [
+    [269101, [2691001, 2691101]],
+    [275101, [2751001, 2751101, 2751201]],
+    [554101, [5541001, 5541011, 5541111]],
+  ] as const;
+  const damage = combos.flatMap<number>(([, effects]) => effects);
+  const table: Fx = {
+    t: [["action1", "action1", 0, "hurt", 1], ["", "", 0, "no-hurt", 1]],
+    e: { ...Object.fromEntries([...damage, 5501001, 7051001, 5501101, 7051011, 7051021].map(id => [id, 0])),
+      5541201: 1, 5541131: 1 },
+    g: {}, s: {}, m: {},
+    am: { 5541201: "none", 5541131: "none" },
+    d: [...damage, 5501001, 7051001],
+  };
+  const phases = (sid: number, effects: readonly number[]) => previewCasts(table, sid, [...effects])
+    .map(cast => (cast.effect_play as { effect_bid: number }[]).map(effect => effect.effect_bid));
+  for (const [sid, effects] of combos) {
+    assert.deepEqual(phases(sid, effects), effects.map(effect => [effect]));
+  }
+  assert.deepEqual(phases(269101, [2691001, 2691101, 2691001]), [[2691001, 2691001], [2691101]]);
+  assert.deepEqual(phases(554101, [5541001, 5541011, 5541111, 5541201, 5541131]),
+    [[5541001], [5541011], [5541111, 5541201, 5541131]]);
+  assert.deepEqual(phases(550101, [5501001, 5501101]), [[5501001, 5501101]]);
+  assert.deepEqual(phases(705101, [7051001, 7051011, 7051021]), [[7051001, 7051011, 7051021]]);
+});
+
+test("original moveTo keeps column offsets in pixels and reverse offsets relative to the target base", () => {
+  const p: MovePlan = { delay: 0, time: 0.2, x: -12, y: 2, area: false, col: false, reverse: false, backDelay: 0, backTime: 0.15, backX: 0 };
+  const home: [number, number] = [18, 21], target: [number, number] = [62, 21];
+  assert.deepEqual(moveTarget(p, 1, home, target, 2), [50, 23]);
+  assert.deepEqual(moveTarget({ ...p, col: true, x: 45 }, 1, home, target, 2, 9), [39, 21]);
+  assert.deepEqual(moveTarget({ ...p, col: true, x: 45 }, -1, target, home, 2, 9), [39, 21]);
+  assert.deepEqual(moveTarget({ ...p, col: true, reverse: true, x: 45 }, -1, target, home, 2, 9), [49, 21]);
+  assert.deepEqual(moveTarget({ ...p, reverse: true }, 1, home, target, 2, 9, [53, 15]), [65, 13]);
+  assert.deepEqual(moveTarget({ ...p, reverse: true }, -1, target, home, 2, 9, [27, 15]), [15, 17]);
+  assert.deepEqual(moveTarget({ ...p, area: true, reverse: true }, 1, home, target, 2), [28, 80 * 11 / 36 + 2]);
+  assert.deepEqual(backTarget({ ...p, backX: -3 }, 1, home, target), [15, 21]);
+  assert.deepEqual(backTarget({ ...p, backX: -3 }, -1, target, home), [65, 21]);
+  assert.deepEqual(backTarget({ ...p, backX: 3 }, 1, home, target), [59, 21]);
+});
 
 test("an effect row says its animation, its shake and whether the target is hurt", opts, () => {
   assert.deepEqual(effectInfo(fx, 2513001), { anim: "action2", animeRes: "action1", shakeId: 13, noHurt: false, splitHurt: 1 });
@@ -45,7 +137,7 @@ test("a run stops short of the target on its own side, forward of home when posi
   assert.deepEqual(backTarget(p, 1, [27, 15], [42, 15]), [27, 15]); // back_model_x 0: home
   assert.deepEqual(moveTarget({ ...p, x: 5, y: 2 }, 1, [27, 15], [42, 15], 1), [32, 17]);
   assert.deepEqual(moveTarget({ ...p, area: true, x: -3, y: 0 }, 1, [27, 15], [42, 15], 1), [37, 80 * 11 / 36]);
-  assert.deepEqual(moveTarget({ ...p, col: true, x: -4 }, -1, [42, 21], [27, 21], 2), [44 + 4, 21]);
+  assert.deepEqual(moveTarget({ ...p, col: true, x: -4 }, -1, [42, 21], [27, 21], 2), [44 + 4 / 9, 21]);
 });
 
 test("a shake steps eight directions a round, 3 weaker each round, as the original's shakeScreen", opts, () => {

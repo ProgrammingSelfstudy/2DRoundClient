@@ -2,11 +2,13 @@
 import type { Session } from "./shared/session";
 import type { Store } from "./store";
 import type { Windows } from "./windows";
+import type { OperationLog } from "./operationlog";
 
 export interface App {
   session: Session;
   store: Store;
   windows: Windows;
+  log: OperationLog;
   query: URLSearchParams; // the page's own ?key=value, for the dev conveniences
   toast(text: string): void;
 }
@@ -14,6 +16,7 @@ export interface App {
 // run what a tap started; what goes wrong (the server did not answer, a file did not load) is told to the player instead of being lost
 export function attempt(app: App, f: () => Promise<unknown>): void {
   f().catch(e => {
+    app.log.record("actionFailed");
     console.warn(`${(e as Error).stack || e}`);
     app.toast((e as Error).message);
   });

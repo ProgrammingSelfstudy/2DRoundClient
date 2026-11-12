@@ -106,8 +106,7 @@ export async function buildHeroPage(canvas: Node): Promise<HeroPage> {
     scroll.range(top, top + Math.max(0, contentH - vt.height));
     content.setPosition(0, top, 0);
   };
-  // the library tab: every 5-star hero of the client's table, the camp's, the lowest initial star first, the level cap of the star where the level goes,
-  // grey when the player does not have the hero
+  // The library uses the same initial-star filter as the hero list. Unowned heroes appear in grey.
   const renderLibrary = () => {
     content.removeAllChildren();
     const owned = new Set(everyone.map(h => h.bid));

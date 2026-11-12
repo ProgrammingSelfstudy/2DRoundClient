@@ -12,7 +12,7 @@ import { buildMainPage } from "./mainpage";
 import type { Win } from "./windows";
 
 export async function enterCity(app: App): Promise<void> {
-  const { store, windows, query } = app;
+  const { store, windows, query, log } = app;
 
   const city = await buildCityScene(windows.layer("scene"));
   screen.on("window-resize", city.relayout);
@@ -20,7 +20,7 @@ export async function enterCity(app: App): Promise<void> {
 
   const formation = formationFeature(app);
   const campaign = campaignFeature(app, formation);
-  const heroes = heroFeature(app, formation, campaign.battle);
+  const heroes = heroFeature(app, formation);
   const bag = windows.define("page", async parent => {
     const b = await buildBackpackPage(parent);
     store.follow("bag", () => b.setItems(store.items, store.equips));
@@ -43,6 +43,11 @@ export async function enterCity(app: App): Promise<void> {
   const pages: { [tab: number]: Win<{ root: Node; show(on: boolean): void }> } = { 2: heroes.page, 3: bag, 4: campaign.page };
   let tab = 1;
   main.onTab(t => {
+    if (t === 1) log.record("city");
+    else if (t === 2) log.record("heroes");
+    else if (t === 3) log.record("backpack");
+    else if (t === 4) log.record("campaign");
+    else log.record("otherTab", t);
     tab = t;
     windows.hideLayer("full");
     windows.hideLayer("page");

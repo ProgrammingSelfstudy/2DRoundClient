@@ -8,9 +8,10 @@ Writes <assets-dir>/build/<version>/f/<hash[:2]>/<hash>.<ext> and <assets-dir>/b
 
 Three kinds of file, all listed in the manifest under a logical path:
   images   resource/... -> boot/<name>.webp, ui/<dir>/<name>.webp. A png is re-encoded as lossy webp (q85, alpha lossless, see
-           docs/reports/GIANTS.md and TEXTURES.md); webp and jpg stay as they are, re-encoding a lossy file gains nothing.
+           docs/reports/GIANTS.md and TEXTURES.md). Existing webp and jpg are copied except for atlases with excluded frames.
   atlases  resource/<dir>/<name>.plist -> ui/<dir>/<name>.json: {texture, size, frames{name: x,y,w,h,rotated,ox,oy,sw,sh}}.
   layouts  a .csb -> layouts/<dir>/<name>.json: the node tree (csb_tree.py), resource references rewritten to logical atlas paths.
+Building the hero group uses ffmpeg to clear the obsolete formation card from the shared atlas before WebP encoding.
 A group with no naming rule stops the build instead of inventing names.
 """
 import hashlib
@@ -32,6 +33,9 @@ LAYOUTS = {"boot": ["login/user_panel.csb"], "mainui": ["mainui/mainui_view.csb"
            "backpack": ["backpack/backpack_window.csb", "backpack/goods_item.csb"],
            "hero": ["hero/hero_bag_window.csb", "hero/hero_main_info_window.csb", "hero/hero_main_tab_train_panel.csb", "hero/hero_main_tab_equip_panel.csb", "hero/hero_tips_attr_panel.csb"], "herolibrary": ["hero/hero_library_main_window.csb", "hero/hero_library_main_item.csb", "hero/hero_library_info_window.csb"], "form": ["hero/form_go_fight_panel.csb"], "battle": ["battle/battle_mvp_view.csb", "battle/battle_fail_view.csb"], "battledrama": ["battle/battle_button_list.csb", "battledrama/battle_drama_quick_battle_windows.csb", "battledrama/battle_drama_hook_reward_windows.csb"]}  # group -> csb paths (under the recovered csb directory) shipped as layouts
 
+
+HERO_ATLAS = "resource/hero/hero.plist"
+EMPTY_FORMATION_CARD = "hero_info_21.png"
 
 def group_of(path):
     if path.startswith("resource/login/"):
@@ -207,6 +211,8 @@ def main(assets, version, groups):
     os.makedirs(f"{out}/f", exist_ok=True)
     files, tmp = {}, tempfile.mkdtemp()
     unconverted = []
+    spine_pages = set()
+    omitted_atlas_rects = {}
 
     def put(logical, data, ext, group, src, **extra):
         digest = hashlib.sha256(data).hexdigest()[:20]
@@ -214,33 +220,64 @@ def main(assets, version, groups):
         open(f"{out}/f/{digest[:2]}/{digest}.{ext}", "wb").write(data)
         files[logical] = {"hash": digest, "ext": ext, "bytes": len(data), "group": group, "src": src, **extra}
 
-    for h, p in sorted(found.items(), key=lambda kv: kv[1]):
+    resources = sorted(found.items(), key=lambda kv: kv[1])
+    # A Spine action is usable only when its skeleton, atlas and every texture page are available.
+    # Resolve complete actions before encoding textures so pages shared with a usable action are kept.
+    for h, p in resources:
+        g = group_of(p)
+        if g not in groups or not g.startswith(("fx-", "hero-")) or not p.endswith(".atlas"):
+            continue
+        skel = p.removesuffix(".atlas") + ".skel"
+        skel_hash = inv.get(skel)
+        if not skel_hash:
+            continue
+        atlas = open(f"{pkg}/{h[0]}/{h}.atlas", "rb").read()
+        directory = p.rsplit("/", 1)[0]
+        pages = {f"{directory}/{line.strip()}" for line in atlas.decode("utf-8", errors="replace").splitlines()
+                 if line.strip().lower().endswith(".png")}
+        if not pages or any(inv.get(page) not in audit for page in pages):
+            continue
+        try:  # Spine 3.4 binary -> the JSON Creator's 3.8 runtime reads
+            data = open(f"{pkg}/{skel_hash[0]}/{skel_hash}.skel", "rb").read()
+            skeleton = json.dumps(convert(data), separators=(",", ":")).encode()
+        except Exception as e:
+            unconverted.append(f"{skel}: {type(e).__name__} {e}")
+            continue
+        put(spine_logical(skel, g, "json"), skeleton, "json", g, skel)
+        put(spine_logical(p, g, "atlas"), atlas, "atlas", g, p)
+        spine_pages.update(pages)
+
+    for h, p in resources:
         g = group_of(p)
         if g not in groups:
+            continue
+        if g.startswith(("fx-", "hero-")) and p not in spine_pages:
             continue
         if p.endswith(".plist"):  # atlas table
             pl = plistlib.load(open(f"{pkg}/{h[0]}/{h}.plist", "rb"))
             tex = p.rsplit("/", 1)[0] + "/" + pl["metadata"]["textureFileName"]
             page = audit[inv[tex]]
+            if p == HERO_ATLAS:
+                card = pl["frames"].pop(EMPTY_FORMATION_CARD, None)
+                if card:
+                    omitted_atlas_rects[tex] = ints(card["frame"])
             put(logical_atlas(p), json.dumps(atlas_json(pl, logical_image(tex, g), [page["w"], page["h"]]), separators=(",", ":")).encode(), "json", g, p)
-            continue
-        if g and g.startswith(("fx-", "hero-")) and p.endswith((".skel", ".atlas")):
-            data = open(f"{pkg}/{h[0]}/{h}.{p.rsplit('.', 1)[1]}", "rb").read()
-            if p.endswith(".skel"):  # Spine 3.4 binary -> the JSON Creator's 3.8 runtime reads
-                try:
-                    put(spine_logical(p, g, "json"), json.dumps(convert(data), separators=(",", ":")).encode(), "json", g, p)
-                except Exception as e:  # a few of the original's files cannot be read (docs/UI_ACCEPTANCE.md, risks): leave them out and say so at the end
-                    unconverted.append(f"{p}: {type(e).__name__} {e}")
-            else:
-                put(spine_logical(p, g, "atlas"), data, "atlas", g, p)
             continue
         if h not in audit:
             continue
         r = audit[h]
         data = z.read("decoded/" + r["name"])
-        if r["fmt"] == "png":
-            src = f"{tmp}/{h}.png"
+        if r["fmt"] == "png" or p in omitted_atlas_rects:
+            src = f"{tmp}/{h}.{r['fmt']}"
             open(src, "wb").write(data)
+            if p in omitted_atlas_rects:
+                # The plist sorts before its page. Erase the pixels and their one-pixel extrusion as well as the frame entry.
+                x, y, w, h_card = omitted_atlas_rects[p]
+                trimmed = f"{tmp}/{h}-trimmed.png"
+                box = f"format=rgba,drawbox=x={x - 1}:y={y - 1}:w={w + 2}:h={h_card + 2}:color=black@0:t=fill:replace=1"
+                subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-i", src, "-vf", box,
+                                "-frames:v", "1", "-update", "1", trimmed], check=True)
+                src = trimmed
             subprocess.run(["cwebp", "-quiet", "-q", "85", "-m", "6", "-alpha_q", "100", "-exact", src, "-o", f"{tmp}/{h}.webp"], check=True)
             data, ext = open(f"{tmp}/{h}.webp", "rb").read(), "webp"
         else:
@@ -256,6 +293,11 @@ def main(assets, version, groups):
             t = tree(f"{pkg}/{h[0]}/{h}.csb")
 
             def rewrite(n):
+                if csb == "hero/form_go_fight_panel.csb":
+                    # The recovered layout still contains hidden legacy cards. Keep them out of the release layout too.
+                    n["children"] = [child for child in n["children"] if not any(
+                        r["plist"] == HERO_ATLAS and r["path"] == EMPTY_FORMATION_CARD for r in child["res"]
+                    )]
                 for r in n["res"]:
                     # a frame inside an atlas is addressed as <logical atlas json>#<frame name>; a loose image by its original path
                     r["atlas"] = logical_atlas(r["plist"]) if r["plist"] else ""

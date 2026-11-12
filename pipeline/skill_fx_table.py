@@ -15,6 +15,11 @@
   nm skill bid -> name of every active skill that is not a normal attack, so the banner finds the form variants (541314 is 阿修罗·亡者戏 again) that no hero's skill list has
   m  model -> anime_res -> animation name -> [move_time, move_model_x, move_model_y, back_delay_time, back_move_time, back_model_x,
      move_delay_time, is_reverse, is_move_area, is_col_act, is_move_map] (battle_act_data.lua, data_info); "0" is the default row
+  ms model -> scale in thousandths (battle_act_data.lua, data_get_model_scale); absent models use 1000
+  script effect bid -> groups of {op, args} for explicit movement (skill_data.lua, data_get_act_data); groups play in order, members in parallel
+  am effect bid -> "attack" when the original action list plays the caster's Spine, otherwise "none"
+  d  effect bids with effect_type 1 whose action lists play the caster; different IDs can start separate hits
+  ps effect bid -> 0 when the actor holds its final pose until a later action instead of returning to stand; omitted means 1
 
   python3 pipeline/skill_fx_table.py <lua dir ePoCrKQk.../> <out.json>
 """
@@ -31,72 +36,69 @@ ACT_FIELDS = ["move_time", "move_model_x", "move_model_y", "back_delay_time", "b
               "move_delay_time", "is_reverse", "is_move_area", "is_col_act", "is_move_map"]
 
 
-def effects(lua_dir):
-    rows, index = [], {}
-    by_bid = {}
+def effect_rows(lua_dir):
     for path in sorted(glob.glob(f"{lua_dir}/skill_data*.lua")):
         src = open(path, encoding="utf-8").read()
         if "data_get_effect_table = {" not in src:
             continue
         src = src[src.index("data_get_effect_table = {"):]
         src = src[:src.index("\n}\n")]
-        for m in re.finditer(r'\[(\d+)\] = "(\{.*\})",?\n', src):
-            row = lua_row(m.group(2))
-            # indexes of the effect row: 5 anime_res, 6 anime_user_atk, 13 shake_id, 19 hit_action, 24 split_hurt
-            item = (row[6], row[5], int(row[13]), row[19], max(1, int(row[24])))
-            by_bid[m.group(1)] = index.setdefault(item, len(index))
-            if len(rows) < len(index):
-                rows.append(list(item))
-    assert len(by_bid) > 7000, len(by_bid)  # 7665 effect rows
+        for match in re.finditer(r'\[(\d+)\] = "(\{.*\})",?\n', src):
+            yield match.group(1), lua_row(match.group(2))
+
+
+def effects(lua_dir):
+    rows, index = [], {}
+    by_bid = {}
+    for bid, row in effect_rows(lua_dir):
+        # indexes of the effect row: 5 anime_res, 6 anime_user_atk, 13 shake_id, 19 hit_action, 24 split_hurt
+        item = (row[6], row[5], int(row[13]), row[19], max(1, int(row[24])))
+        by_bid[bid] = index.setdefault(item, len(index))
+        if len(rows) < len(index):
+            rows.append(list(item))
+    assert len(by_bid) > 7000, len(by_bid)
     return rows, by_bid
 
 
 def targets(lua_dir):
-    out = {}
-    for path in sorted(glob.glob(f"{lua_dir}/skill_data*.lua")):
-        src = open(path, encoding="utf-8").read()
-        if "data_get_effect_table = {" not in src:
-            continue
-        src = src[src.index("data_get_effect_table = {"):]
-        src = src[:src.index("\n}\n")]
-        for m in re.finditer(r'\[(\d+)\] = "(\{.*\})",?\n', src):
-            ty = int(lua_row(m.group(2))[2])
-            if ty != 1:
-                out[m.group(1)] = ty
-    return out
+    return {bid: int(row[2]) for bid, row in effect_rows(lua_dir) if int(row[2]) != 1}
+
+
+def action_definitions(lua_dir):
+    src = open(f"{lua_dir}/skill_data.lua", encoding="utf-8").read()
+    marker = "Config.SkillData.data_get_act_data = {"
+    src = src[src.index(marker):]
+    src = src[:src.index("\n}\n")]
+    pattern = r'\[(\d+)\] = \{\s*act_type = \d+,\s*bid = \d+,\s*name = "[^"]*",\s*act_args = \{\s*"(\w+)",\s*\{([^}]*)\},?\s*\},?\s*\}'
+    return {int(match[1]): (match[2], match[3]) for match in re.finditer(pattern, src)}
+
+
+def flat_actions(group):
+    for entry in group:
+        if isinstance(entry, list):
+            yield from flat_actions(entry)
+        else:
+            yield entry
 
 
 def blacks(lua_dir):
     """effect bid -> [delay, opacity, hide]; the first black act of the effect's action list sets the opacity (the scene's layer is shown once)"""
-    src = open(f"{lua_dir}/skill_data.lua", encoding="utf-8").read()
-    acts = {}
-    for m in re.finditer(r'\[(\d+)\] = \{\s*act_type = \d+,\s*bid = \d+,\s*name = "[^"]*",\s*act_args = \{\s*"(\w+)",\s*\{([^}]*)\},?\s*\},?\s*\}', src):
-        if m.group(2) in ("blackScreen2", "blackScreen3", "blackScreen4"):
-            acts[int(m.group(1))] = (m.group(2), [a.strip().strip('"') for a in m.group(3).split(",") if a.strip()])
+    acts = {
+        action: (op, [a.strip().strip('"') for a in args.split(",") if a.strip()])
+        for action, (op, args) in action_definitions(lua_dir).items()
+        if op in ("blackScreen2", "blackScreen3", "blackScreen4")
+    }
     assert len(acts) == 7, acts  # 10008, 10026, 10027, 10040 to 10043 (no act uses blackScreen4)
 
-    def flat(x):
-        for i in x:
-            if isinstance(i, list):
-                yield from flat(i)
-            else:
-                yield i
-
     out = {}
-    for path in sorted(glob.glob(f"{lua_dir}/skill_data*.lua")):
-        text = open(path, encoding="utf-8").read()
-        if "data_get_effect_table = {" not in text:
+    for bid, row in effect_rows(lua_dir):
+        hit = [acts[action] for action in flat_actions(row[4]) if action in acts]
+        if not hit:
             continue
-        text = text[text.index("data_get_effect_table = {"):]
-        text = text[:text.index("\n}\n")]
-        for m in re.finditer(r'\[(\d+)\] = "(\{.*\})",?\n', text):
-            hit = [acts[a] for a in flat(lua_row(m.group(2))[4]) if a in acts]
-            if not hit:
-                continue
-            first = hit[0][1]
-            delay = int(first[0]) if first and first[0].lstrip("-").isdigit() else 0
-            opacity = int(first[2]) if len(first) > 2 and first[2].isdigit() else 255
-            out[m.group(1)] = [delay, min(255, opacity), 1 if any(h[0] == "blackScreen2" for h in hit) else 0]
+        first = hit[0][1]
+        delay = int(first[0]) if first and first[0].lstrip("-").isdigit() else 0
+        opacity = int(first[2]) if len(first) > 2 and first[2].isdigit() else 255
+        out[bid] = [delay, min(255, opacity), 1 if any(h[0] == "blackScreen2" for h in hit) else 0]
     assert len(out) > 1000, len(out)  # 1128 effects
     return out
 
@@ -187,9 +189,60 @@ def acts(lua_dir):
     return out
 
 
+def model_scales(lua_dir):
+    src = open(f"{lua_dir}/battle_act_data.lua", encoding="utf-8").read()
+    marker = "Config.BattleActData.data_get_model_scale = "
+    table_src = src[src.index(marker) + len(marker):]
+    return Lua(table_src[:table_src.index("\n}\n") + 2]).value()
+
+
+def scripted_moves(lua_dir):
+    move_ops = {"moveTo", "moveBack"}
+    supported_ops = move_ops | {"fadeOut", "fadeIn", "attack"}
+    definitions = {
+        action: {"op": op, "args": json.loads("[" + args.strip().rstrip(",") + "]")}
+        for action, (op, args) in action_definitions(lua_dir).items()
+        if op in supported_ops
+    }
+    out = {}
+    for bid, row in effect_rows(lua_dir):
+        ids = list(flat_actions(row[4]))
+        if not all(action in definitions for action in ids):
+            continue
+        if not any(definitions[action]["op"] in move_ops for action in ids):
+            continue
+        # BattleModel.playOrder takes outer entries one at a time and mutiAct
+        # starts every action inside a nested list in parallel (cc.Spawn).
+        out[bid] = [
+            [definitions[action] for action in flat_actions(group)]
+            if isinstance(group, list) else [definitions[group]]
+            for group in row[4]
+        ]
+    return out
+
+
+def actor_actions(lua_dir):
+    definitions = action_definitions(lua_dir)
+    attack_ids = {action for action, (op, _) in definitions.items() if op in ("attack", "flyItem")}
+    modes, hold_pose, damage_effects = {}, {}, set()
+    for bid, row in effect_rows(lua_dir):
+        modes[bid] = "attack" if any(action in attack_ids for action in flat_actions(row[4])) else "none"
+        if modes[bid] == "attack" and row[3] == 1:
+            damage_effects.add(int(bid))
+        if row[25] == 0:
+            hold_pose[bid] = 0
+    return modes, hold_pose, sorted(damage_effects)
+
+
 def table(lua_dir):
     t, e = effects(lua_dir)
-    return {"t": t, "e": e, "g": group_actions(lua_dir), "s": shakes(lua_dir), "k": blacks(lua_dir), "y": targets(lua_dir), "n": normals(lua_dir), "nm": skill_names(lua_dir), "m": acts(lua_dir)}
+    modes, hold_pose, damage_effects = actor_actions(lua_dir)
+    return {
+        "t": t, "e": e, "g": group_actions(lua_dir), "s": shakes(lua_dir),
+        "k": blacks(lua_dir), "y": targets(lua_dir), "n": normals(lua_dir),
+        "nm": skill_names(lua_dir), "m": acts(lua_dir), "ms": model_scales(lua_dir),
+        "script": scripted_moves(lua_dir), "am": modes, "ps": hold_pose, "d": damage_effects,
+    }
 
 
 if __name__ == "__main__":

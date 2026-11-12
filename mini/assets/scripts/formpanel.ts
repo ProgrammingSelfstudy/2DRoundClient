@@ -6,7 +6,7 @@
 // The heroes stand on the pedestals as Spine models (createHeroSpine). Not built: the formation change (阵法) window, the halo, the elfin and the
 // artifact slots (they answer "not open"), dragging a hero between positions, the other tabs of the table.
 import { Color, Label, Mask, Node, Sprite, UIOpacity, UITransform, instantiate } from "cc";
-import { atlasFrame, hasFile, loadJson, spriteFrame } from "./cdn";
+import { atlasFrame, hasFile, loadJson } from "./cdn";
 import { spineNode } from "./spine";
 import { CELL, Hero, PartnerTable, heroCellMaker } from "./herocell";
 import { listed } from "./herofilter";
@@ -45,17 +45,10 @@ export async function buildFormPanel(canvas: Node, notify: (text: string) => voi
   });
   const root = built.root;
   root.setPosition(-W / 2, -H / 2, 0);
+  // The layout's imgbox_1039 already draws the deck and both wooden frames.
   opaqueBase(root, W, H);
   root.active = false;
   const node = (name: string) => built.byName.get(name)!;
-
-  // the window dims what is behind it: the layout's background is a plain panel, so a translucent cover is drawn on it
-  const dim = node("background");
-  dim.getComponent(UITransform)!.setContentSize(W, H);
-  const cover = dim.getComponent(Sprite) ?? dim.addComponent(Sprite);
-  cover.sizeMode = Sprite.SizeMode.CUSTOM;
-  spriteFrame("bg/bigbg_100.webp").then(sf => { if (cover.isValid) cover.spriteFrame = sf; }, () => {});
-  dim.addComponent(UIOpacity).opacity = 180;
 
   node("win_title").getComponent(Label)!.string = "英雄出战";
   node("close_btn").on(Node.EventType.TOUCH_END, () => close());
@@ -132,8 +125,6 @@ export async function buildFormPanel(canvas: Node, notify: (text: string) => voi
     redraw();
   };
 
-  // the empty-position tile of the hero atlas, shared by the six positions
-  const tile = atlasFrame("ui/hero/hero.json", "hero_info_21.png");
   // the formation icon of the change button: form_icon_<formation type> of the form atlas
   const formIcon = node("form_change_btn").getChildByName("form_icon")!.getComponent(Sprite)!;
 
@@ -159,21 +150,13 @@ export async function buildFormPanel(canvas: Node, notify: (text: string) => voi
     slotLayer.removeAllChildren();
     const cells = CELLS[formationType] ?? CELLS[1];
     atlasFrame("ui/form/form.json", `form_icon_${formationType}.png`).then(sf => { if (formIcon.isValid) formIcon.spriteFrame = sf; }, () => {});
-    slots.forEach((h, i) => {
+    slots.forEach((hero, i) => {
+      const pedestal = bars[i];
+      pedestal.active = hero !== null;
+      if (!hero) return;
       const p = nine(cells[i]);
-      bars[i].setPosition(p.x, p.y - 70, 0); // the pedestal stands 70 below its cell, as initFormationData sets it
-      if (h) {
-        slotLayer.addChild(standOf(h, p.x, p.y));
-      } else {
-        const t = new Node(`empty_${i + 1}`);
-        t.layer = stage.layer;
-        t.addComponent(UITransform).setContentSize(119, 119);
-        t.setPosition(p.x, p.y, 0);
-        const s = t.addComponent(Sprite);
-        s.sizeMode = Sprite.SizeMode.CUSTOM;
-        tile.then(sf => { if (s.isValid) s.spriteFrame = sf; }, () => {});
-        slotLayer.addChild(t);
-      }
+      pedestal.setPosition(p.x, p.y - 70, 0); // the pedestal stands 70 below its cell, as initFormationData sets it
+      slotLayer.addChild(standOf(hero, p.x, p.y));
     });
     power.string = String(slots.reduce((a, h) => a + (h?.power ?? 0), 0));
     drawList();

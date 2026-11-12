@@ -2,11 +2,11 @@
 // every fighter's Spine animations at its grid cell. The grid is the original's (SkillAct.Pos2GridLeft / NormalPosGridRight; a cell is 1/80
 // of the design width and height, the role layer sits 300 above the bottom). How a skill is played (its animation, the run to the target and back, the
 // screen shake, hurt or not) is worked out by skillplan.ts from tables/skill_fx.json; this file carries it out. Skill effects and the elf come later.
-import { Color, Graphics, HorizontalTextAlignment, Label, Node, Sprite, Tween, UIOpacity, UITransform, Vec3, VerticalTextAlignment, sp, tween } from "cc";
+import { Color, Director, Graphics, HorizontalTextAlignment, Label, Node, Sprite, Tween, UIOpacity, UITransform, Vec3, VerticalTextAlignment, director, sp, tween } from "cc";
 import { hasFile, loadJson, spriteFrame } from "./cdn";
 import { setModel, spineData, spineNode } from "./spine";
 import { W, H } from "./design";
-import { attackOf, backTarget, blackOf, effectInfo, hitEvent, hitShare, movePlan, moveTarget, shakeSteps } from "./skillplan";
+import { attackOf, backTarget, blackOf, effectInfo, hitEvent, hitShare, movePlan, moveTarget, previewCell, previewZOrder, shakeSteps } from "./skillplan";
 import type { Cell, Fx, MovePlan } from "./skillplan";
 import { FxList, entitiesOf, playEntity } from "./skillfx";
 import type { FxRes, FxSpot } from "./skillfx";
@@ -30,6 +30,7 @@ export interface BattleScene {
   root: Node;
   start(opening: Msg, mapId: number): Promise<void>;
   play(skillPlays: Msg[]): Promise<void>; // one round's attacks (20004)
+  stop(): void;
   round(n: number, max: number): void; // "第 n/max 回合" at the top, from the action count of 20002
   caption(text: string): void; // any line at the same place, for the skill demo
   isPlaceholder(pos: number): boolean; // whether the fighter at a position stands as a disc (its model did not load), for the skill demo
@@ -40,11 +41,15 @@ export interface BattleScene {
 
 // A fighter's position node holds the body (flipped for the second group; one Spine per action file, only the playing one shown), a
 // hit-point bar and the floating numbers, which must not be flipped with the body.
+interface BattleVitals {
+  hp: number; hpMax: number; bar: Graphics; buffs: Map<number, number>; status: Label;
+}
 interface Fighter {
-  group: number; type: number; bid: number; model: string; root: Node; body: Node; bar: Graphics;
-  hp: number; hpMax: number; dead: boolean; buffs: Map<number, number>; status: Label; // buffs: buff id -> bid of the statuses on it, status: their names over the bar
+  group: number; type: number; bid: number; model: string; root: Node; body: Node; vitals: BattleVitals | null;
+  dead: boolean;
   ph: boolean; // ph: stands as a placeholder (no model, or none the release carries)
   home: Cell; side: number; row: number; // its grid cell, +1 for the first group and -1 for the second, its row 1..3 (the original's obj_type and col)
+  zOrder: number; // the original renderer depth, tracked only in the preview
   seq: number; // counts the animations started on it, so a finished one only returns to standing when no newer one has begun
   files: Map<string, Promise<sp.Skeleton | null>>;
 }
@@ -55,7 +60,8 @@ function cell(group: number, pos: number): number[] {
   return RIGHT_NORMAL[Math.max(1, pos - 9) - 1];
 }
 
-export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
+export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" = "battle"): Promise<BattleScene> {
+  const preview = mode === "preview";
   const [models, fx, fxRes, buffTable, skillNames] = await Promise.all([
     loadJson<Models>("tables/battle_models.json"),
     loadJson<Fx>("tables/skill_fx.json"),
@@ -98,12 +104,28 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
   root.on(Node.EventType.TOUCH_END, () => tapped());
   let token = 0;
   const fighters = new Map<number, Fighter>();
+  const sortPreviewRoles = () => {
+    Array.from(fighters.values()).sort((a, b) => a.zOrder - b.zOrder || a.root.getSiblingIndex() - b.root.getSiblingIndex())
+      .forEach((f, i) => f.root.setSiblingIndex(i));
+  };
+  const resetPreviewZOrder = (f: Fighter, pos: number) => {
+    const zOrder = previewZOrder(pos);
+    if (f.zOrder === zOrder) return;
+    f.zOrder = zOrder;
+    // Cocos2d-x sorts ties by arrival, and changing the local Z updates arrival order.
+    f.root.setSiblingIndex(roles.children.length - 1);
+    sortPreviewRoles();
+  };
 
   const picture = async (parent: Node, logical: string) => {
+    const mine = token;
     const s = parent.getComponent(Sprite) ?? parent.addComponent(Sprite); // a leftover Sprite of the last fight is reused: removeComponent only takes effect later
     s.spriteFrame = null;
     s.sizeMode = Sprite.SizeMode.RAW;
-    try { s.spriteFrame = await spriteFrame(logical); } catch (e) { console.warn(`battle scene: ${(e as Error).message}`); }
+    try {
+      const frame = await spriteFrame(logical);
+      if (mine === token) s.spriteFrame = frame;
+    } catch (e) { console.warn(`battle scene: ${(e as Error).message}`); }
   };
 
   const text = (parent: Node, str: string, size: number, color: Color, x: number, y: number) => {
@@ -144,14 +166,14 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
     return l;
   };
 
-  const drawBar = (f: Fighter) => {
-    const g = f.bar;
+  const drawBar = (f: Fighter, vitals: BattleVitals) => {
+    const g = vitals.bar;
     g.clear();
     g.fillColor = new Color(30, 20, 10, 200);
     g.rect(-BAR_W / 2 - 1, -1, BAR_W + 2, BAR_H + 2);
     g.fill();
     g.fillColor = f.group === 1 ? new Color(90, 220, 90, 255) : new Color(230, 70, 60, 255);
-    g.rect(-BAR_W / 2, 0, BAR_W * Math.max(0, Math.min(1, f.hp / f.hpMax)), BAR_H);
+    g.rect(-BAR_W / 2, 0, BAR_W * Math.max(0, Math.min(1, vitals.hp / vitals.hpMax)), BAR_H);
     g.fill();
   };
 
@@ -161,17 +183,25 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
     if (f.ph) return Promise.resolve(null); // a placeholder has no Spine
     let p = f.files.get(name);
     if (!p) {
+      const mine = token;
       p = (async () => {
+        const n = new Node(name);
         try {
-          const n = new Node(name);
           n.layer = root.layer;
           n.addComponent(UITransform);
           const s = n.addComponent(sp.Skeleton);
-          setModel(s, await spineData(`spine/hero/${f.model}/${name}`));
+          const data = await spineData(`spine/hero/${f.model}/${name}`);
+          if (mine !== token || !f.body.isValid) { n.destroy(); return null; }
+          setModel(s, data);
+          if (preview) s.timeScale = 1.2; // Original battle_act_data.speed_scale_1 (the X1 setting).
           n.active = false;
           f.body.addChild(n);
           return s;
-        } catch (e) { console.warn(`battle scene: ${f.model}/${name}: ${(e as Error).message}`); return null; }
+        } catch (e) {
+          n.destroy();
+          console.warn(`battle scene: ${f.model}/${name}: ${(e as Error).message}`);
+          return null;
+        }
       })();
       f.files.set(name, p);
     }
@@ -180,12 +210,18 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
 
   // find the skeleton that has animation `name`: its own file, else action1's, else any other action file of the model (the original ships some
   // animations inside another file: H30021's action3 is in action2.json); the files the release lacks are not tried
-  const skeletonFor = async (f: Fighter, name: string): Promise<{ s: sp.Skeleton; anim: string } | null> => {
-    const own = f.ph ? [] : [name, "action1", ...ACTION_FILES.filter(n => n !== name && n !== "action1")].filter(n => hasFile(`spine/hero/${f.model}/${n}.json`));
+  const skeletonFor = async (f: Fighter, name: string, animeRes?: string): Promise<{ s: sp.Skeleton; anim: string } | null> => {
+    const own = f.ph ? [] : Array.from(new Set([animeRes || name, name, "action1", ...ACTION_FILES])).filter(n => hasFile(`spine/hero/${f.model}/${n}.json`));
     for (const fileName of own) {
       const s = await file(f, fileName);
       if (s?.findAnimation(name)) return { s, anim: name };
+      if (preview && animeRes && fileName === animeRes) return null;
     }
+    if (preview && name === "stand2" && hasFile(`spine/hero/${f.model}/show.json`)) {
+      const pose = await file(f, "show");
+      if (pose?.findAnimation("show")) return { s: pose, anim: "show" };
+    }
+    if (preview) return null;
     const s = await file(f, "action1");
     return s ? { s, anim: "action1" } : null;
   };
@@ -198,27 +234,33 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
   // looping (standing) or once; a once-animation resolves when it ends and the fighter goes back to standing. `on.hit(k)` fires at each of the
   // animation's "hit" events, k counting from 1 (the original lands the damage there, setAnimationWithEvent); an animation with none, or one that
   // never plays, fires `on.hit(1)` when it ends. `on.move`, `on.back` and `on.shake` are its "move", "back" and "shake_point" events
-  const perform = async (f: Fighter, name: string, loop: boolean, on?: Hooks): Promise<void> => {
+  const perform = async (f: Fighter, name: string, loop: boolean, on?: Hooks, animeRes?: string, reverse = false, restorePose = true): Promise<void> => {
+    const generation = token;
     let ticks = 0;
     const tick = () => { ticks++; on?.hit?.(ticks); };
     const land = () => { if (ticks === 0) tick(); };
     const mine = ++f.seq;
-    const found = await skeletonFor(f, name);
-    if (!found && f.ph && !loop && !f.dead) { // a placeholder lunges at the other side instead of an action; the lunge is its hit
+    const found = await skeletonFor(f, name, animeRes);
+    if (generation !== token) return;
+    if (!found && preview && !loop && animeRes !== undefined) throw new Error("缺少该技能动作素材");
+    if (!found && !preview && f.ph && !loop && !f.dead) { // a placeholder lunges at the other side instead of an action; the lunge is its hit
       const x = f.body.position.x, d = f.group === 1 ? 40 : -40;
       await new Promise<void>(r => tween(f.body).to(0.15, { position: new Vec3(x + d, 0, 0) }).call(land).to(0.15, { position: new Vec3(x, 0, 0) }).call(() => r()).start());
       return;
     }
     if (!found || f.dead) { land(); return; }
     await showOnly(f, found.s);
+    if (generation !== token) return;
+    f.body.setScale(Math.abs(f.body.scale.x) * f.side * (reverse ? -1 : 1), f.body.scale.y, 1);
     if (loop) { found.s.setAnimation(0, found.anim, true); return; }
     // the damage lands on the animation's hit event, or on its attack event when it has no hit (the area skills); it may run past 2 s (a
     // finishing move), so the wait for its end is its own length and a little more
     const json = found.s.skeletonData?.skeletonJson as { animations?: { [a: string]: { events?: { name: string }[] } } } | undefined;
     const landOn = hitEvent((json?.animations?.[found.anim]?.events ?? []).map(e => e.name));
     await new Promise<void>(resolve => {
-      const timer = setTimeout(resolve, (found.s.findAnimation(found.anim)?.duration ?? 2) * 1000 + 500); // never wait for an animation forever
+      const timer = setTimeout(resolve, (found.s.findAnimation(found.anim)?.duration ?? 2) / found.s.timeScale * 1000 + 500); // never wait for an animation forever
       found.s.setEventListener((_entry, event) => {
+        if (generation !== token) return;
         const n = event.data.name.toLowerCase();
         if (n === "attack") on?.attack?.(); // the original's attackPoint, whether or not the damage lands on this event too
         if (n === landOn) tick();
@@ -230,12 +272,26 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
       found.s.setCompleteListener(() => { clearTimeout(timer); resolve(); });
       found.s.setAnimation(0, found.anim, false);
     });
+    if (generation !== token) return;
     land();
-    if (!f.dead && f.seq === mine) await perform(f, "stand2", true); // a hurt that ends late must not cut off the attack that began after it
+    if (restorePose && !f.dead && f.seq === mine) await perform(f, "stand2", true); // a hurt that ends late must not cut off the attack that began after it
   };
 
   // a fighter whose model the release does not carry stands as a disc with its name, so the fight can still be followed
   const placeholder = (f: Fighter, name: string) => {
+    const headPath = `icons/head/${f.bid}.webp`;
+    if (preview && f.type === OBJECT_PARTNER && hasFile(headPath)) {
+      const head = new Node("preview_portrait");
+      head.layer = root.layer;
+      head.addComponent(UITransform).setContentSize(104, 104);
+      head.setPosition(0, 60, 0);
+      const picture = head.addComponent(Sprite);
+      picture.sizeMode = Sprite.SizeMode.CUSTOM;
+      f.body.addChild(head);
+      void spriteFrame(headPath).then(frame => { if (head.isValid) picture.spriteFrame = frame; }, () => {});
+      f.ph = true;
+      return;
+    }
     const g = new Node("placeholder");
     g.layer = root.layer;
     g.addComponent(UITransform);
@@ -263,23 +319,84 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
     if (!list) return;
     for (const b of list) {
       const f = fighters.get(Number(b.target));
-      if (!f) continue;
+      const vitals = f?.vitals;
+      if (!f || !vitals) continue;
       const info = buffTable[String(b.buff_bid)], action = Number(b.action_type);
-      if (action === 2) f.buffs.delete(Number(b.id));
+      if (action === 2) vitals.buffs.delete(Number(b.id));
       else {
-        if (action === 1 && info && !f.buffs.has(Number(b.id))) float(f, info[0], info[1] === 2 ? new Color(255, 110, 100, 255) : new Color(120, 255, 140, 255), false);
-        f.buffs.set(Number(b.id), Number(b.buff_bid));
+        if (action === 1 && info && !vitals.buffs.has(Number(b.id))) float(f, info[0], info[1] === 2 ? new Color(255, 110, 100, 255) : new Color(120, 255, 140, 255), false);
+        vitals.buffs.set(Number(b.id), Number(b.buff_bid));
       }
-      f.status.string = Array.from(new Set(Array.from(f.buffs.values()).map(bid => buffTable[String(bid)]?.[0]).filter(Boolean))).join(" ");
+      vitals.status.string = Array.from(new Set(Array.from(vitals.buffs.values()).map(bid => buffTable[String(bid)]?.[0]).filter(Boolean))).join(" ");
     }
   };
 
   const cellPos = (c: Cell) => new Vec3(c[0] * (W / 80), c[1] * (H / 80), 0);
 
   // the fighter runs to a cell: the original's moveTo / moveBack, an exponential ease out that starts after a delay
-  const runTo = (f: Fighter, c: Cell, delay: number, time: number) => {
-    Tween.stopAllByTarget(f.root);
-    return new Promise<void>(r => tween(f.root).delay(delay).to(time, { position: cellPos(c) }, { easing: "expoOut" }).call(() => r()).start());
+  const motions = new Map<Fighter, Set<{ done: Promise<void>; cancel(): void }>>();
+  const recoil = new Map<Fighter, { done: Promise<void>; cancel(): void }>();
+  const cancelMotion = (f: Fighter) => {
+    for (const motion of motions.get(f) ?? []) motion.cancel();
+  };
+  const runTo = (f: Fighter, c: Cell, delay: number, time: number, replace = true): Promise<void> => {
+    if (replace) cancelMotion(f);
+    const active = motions.get(f) ?? new Set();
+    motions.set(f, active);
+    let finish!: () => void;
+    const done = new Promise<void>(resolve => { finish = resolve; });
+    const movement = tween(f.root).delay(delay).to(time, { position: cellPos(c) }, { easing: "expoOut" });
+    const finishMotion = () => {
+      active.delete(entry);
+      if (!active.size && motions.get(f) === active) motions.delete(f);
+      finish();
+    };
+    const entry = { done, cancel() { movement.stop(); finishMotion(); } };
+    active.add(entry);
+    movement.call(finishMotion).start();
+    return done;
+  };
+  const resetPreviewRound = () => {
+    for (const f of fighters.values()) {
+      cancelMotion(f);
+      recoil.get(f)?.cancel();
+      f.root.setPosition(cellPos(f.home));
+      f.body.setScale(Math.abs(f.body.scale.x) * f.side, f.body.scale.y, 1);
+      const opacity = f.body.getComponent(UIOpacity);
+      if (opacity) { Tween.stopAllByTarget(opacity); opacity.opacity = 255; }
+    }
+  };
+
+  // BattleModel.playBattleRoleHurt schedules SkillAct.hurt on the next frame.
+  // Move the renderer root so attached hit effects travel with the target.
+  const previewHurt = (f: Fighter): Promise<void> => {
+    const current = recoil.get(f);
+    if (current) return current.done;
+    const base = f.root.position.clone();
+    let finishMotion!: () => void;
+    let finishAnimation!: (animation?: Promise<void>) => void;
+    const motionDone = new Promise<void>(resolve => { finishMotion = resolve; });
+    const animationDone = new Promise<void>(resolve => { finishAnimation = resolve; });
+    const done = Promise.all([motionDone, animationDone]).then(() => {});
+    const movement = tween(f.root)
+      .to(0.02, { position: base.clone().add3f(-18 * f.side, 0, 0) })
+      .delay(0.2)
+      .to(0.05, { position: base });
+    const start = () => {
+      finishAnimation(perform(f, "hurt", false));
+      movement.start();
+    };
+    recoil.set(f, { done, cancel() {
+      director.off(Director.EVENT_BEFORE_UPDATE, start);
+      movement.stop();
+      f.root.setPosition(base);
+      recoil.delete(f);
+      finishAnimation();
+      finishMotion();
+    } });
+    movement.call(() => { recoil.delete(f); finishMotion(); });
+    director.once(Director.EVENT_BEFORE_UPDATE, start);
+    return done;
   };
 
   // the skill-name banner (BattleSceneNewView.showSkillName): a 470 by 190 board at the middle of the field, 550 up from the role layer, with the
@@ -305,11 +422,16 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
   const bannerSpine = new Map<number, Promise<sp.Skeleton | null>>();
   let bannerTimer: ReturnType<typeof setTimeout> | undefined;
   const showSkillName = async (f: Fighter, skillBid: number): Promise<void> => {
+    const mine = token;
     const name = fx.nm?.[String(skillBid)] ?? skillNames?.k[String(skillBid)]?.[0];
     if (f.type !== OBJECT_PARTNER || !name || (fx.n ?? []).indexOf(skillBid) >= 0 || !hasFile(`icons/head/${f.bid}.webp`)) return;
     if (lastBanner.get(f) === skillBid) return;
     lastBanner.set(f, skillBid);
-    try { headSprite.spriteFrame = await spriteFrame(`icons/head/${f.bid}.webp`); } catch { return; }
+    try {
+      const frame = await spriteFrame(`icons/head/${f.bid}.webp`);
+      if (mine !== token) return;
+      headSprite.spriteFrame = frame;
+    } catch { return; }
     (nameNode.getComponent(Label) as Label).string = name;
     // the board's own pieces sit in container coordinates (origin at its bottom left): head 114 -> 173, name 425 -> 267 (heights 102)
     const at = (x: number, y: number) => new Vec3(x - 235, y - 95, 0);
@@ -340,8 +462,10 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
       bannerSpine.set(f.group, sk);
     }
     const s = await sk;
+    if (mine !== token) return;
     if (s?.isValid) { s.node.active = true; s.setAnimation(0, f.group === 1 ? "action2" : "action1", false); }
     await wait(300);
+    if (mine !== token) return;
     clearTimeout(bannerTimer);
     bannerTimer = setTimeout(() => { board.active = false; }, 500);
   };
@@ -350,7 +474,8 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
   const blackOn = (alpha: number, others: Fighter[]) => {
     blackG.clear();
     blackG.fillColor = new Color(0, 0, 0, alpha);
-    blackG.rect(-100, -100, W + 200, H + 200);
+    if (preview) blackG.rect(-W / 2, -H / 2, W * 2, H * 2);
+    else blackG.rect(-100, -100, W + 200, H + 200);
     blackG.fill();
     blackLayer.active = true;
     Tween.stopAllByTarget(blackOpacity);
@@ -401,16 +526,17 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
     const last = k === n;
     const f = fighters.get(Number(e.target));
     if (last) applyBuffs(e);
-    if (!f) return;
+    const vitals = f?.vitals;
+    if (!f || !vitals) return;
     if (Number(e.is_hit) === 0) { if (k === 1) dodge(f); return; }
     const noHurt = effectInfo(fx, Number(e.effect_bid))?.noHurt ?? false; // the effect row says whether the target is shown hurt
     const change = Number(e.hp_changed);
     const share = hitShare(change, n);
-    f.hp = last ? Math.max(0, Number(e.hp)) : Math.max(1, f.hp + share); // after the last hit it is the server's, so rounding in the parts leaves no drift
-    drawBar(f);
+    vitals.hp = last ? Math.max(0, Number(e.hp)) : Math.max(1, vitals.hp + share); // after the last hit it is the server's, so rounding in the parts leaves no drift
+    drawBar(f, vitals);
     if (change < 0) {
       float(f, String(-share), e.is_crit ? new Color(255, 200, 40, 255) : new Color(255, 255, 255, 255), Boolean(e.is_crit));
-      if (last && (Number(e.is_dead) === 1 || f.hp === 0)) {
+      if (last && (Number(e.is_dead) === 1 || vitals.hp === 0)) {
         await perform(f, "hurt", false);
         f.dead = true;
         f.root.active = false;
@@ -418,9 +544,33 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
     } else if (change > 0) float(f, `+${share}`, new Color(90, 255, 120, 255), false);
   };
 
+  const clearPreview = () => {
+    resetPreviewRound();
+    motions.clear();
+    for (const layer of [roles, fxBelow, fxAbove, top, roundNode]) {
+      for (const child of layer.children.slice()) {
+        if (child === board) continue;
+        child.removeFromParent();
+        child.destroy();
+      }
+    }
+    fighters.clear();
+    lastBanner.clear();
+    clearTimeout(bannerTimer);
+    board.active = false;
+    blackOff();
+  };
+  let previewCastToken = 0;
+
   return {
     root,
     show(on) { root.active = on; },
+    stop() {
+      token++;
+      root.active = false;
+      if (preview) clearPreview();
+      else for (const f of fighters.values()) cancelMotion(f);
+    },
     onTap(f) { tapped = f; },
     round(n, max) {
       roundNode.removeAllChildren();
@@ -438,19 +588,26 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
     },
     async start(opening, mapId) {
       const mine = ++token;
-      roles.removeAllChildren();
-      top.removeAllChildren();
-      roundNode.removeAllChildren();
-      fighters.clear();
-      blackOff();
-      board.active = false;
-      lastBanner.clear();
+      if (preview) clearPreview();
+      else {
+        for (const f of fighters.values()) cancelMotion(f);
+        roles.removeAllChildren();
+        top.removeAllChildren();
+        roundNode.removeAllChildren();
+        fighters.clear();
+        blackOff();
+        board.active = false;
+        lastBanner.clear();
+      }
       await Promise.all([picture(far, `bg/battle/${mapId}/m_bg.webp`), picture(ground, `bg/battle/${mapId}/map_bg.webp`)]);
+      if (mine !== token) return;
+      const poses: Promise<void>[] = [];
       for (const o of opening.objects as Msg[]) {
         const type = Number(o.object_type), group = Number(o.group), bid = Number(o.object_bid);
         const model = type === OBJECT_PARTNER ? models.p[`${bid}_${o.star}`] : type === OBJECT_UNIT ? models.u[String(bid)]?.[0] : undefined;
-        const [gx, gy] = cell(group, Number(o.pos));
-        const size = type === OBJECT_UNIT ? (models.u[String(bid)]?.[1] ?? 1000) / 1000 : 1;
+        const [gx, gy] = (preview ? previewCell(Number(o.pos)) : undefined) ?? cell(group, Number(o.pos)); // the preview stands its fighters as previewCell has it
+        const unitSize = type === OBJECT_UNIT ? (models.u[String(bid)]?.[1] ?? 1000) / 1000 : 1;
+        const size = unitSize * (preview ? (fx.ms?.[model ?? ""] ?? 1000) / 1000 : 1);
         const fr = new Node(`fighter_${o.pos}`);
         fr.layer = root.layer;
         fr.addComponent(UITransform);
@@ -460,22 +617,41 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
         body.addComponent(UITransform);
         body.setScale(group === 1 ? size : -size, size, 1); // the second group faces the first
         fr.addChild(body);
-        const barNode = new Node("bar");
-        barNode.layer = root.layer;
-        barNode.addComponent(UITransform);
-        barNode.setPosition(0, 130, 0);
-        fr.addChild(barNode);
-        const f: Fighter = { group, type, bid, model: model ?? "", ph: false, seq: 0, home: [gx, gy], side: group === 1 ? 1 : -1, row: Math.max(1, Math.min(3, Math.round((gy - 9) / 6))), buffs: new Map(), status: statusLabel(fr), root: fr, body, bar: barNode.addComponent(Graphics), hp: Number(o.hp), hpMax: Math.max(1, Number(o.hp_max)), dead: false, files: new Map() };
-        drawBar(f);
+        let vitals: BattleVitals | null = null;
+        if (!preview) {
+          const barNode = new Node("bar");
+          barNode.layer = root.layer;
+          barNode.addComponent(UITransform);
+          barNode.setPosition(0, 130, 0);
+          fr.addChild(barNode);
+          vitals = { hp: Number(o.hp), hpMax: Math.max(1, Number(o.hp_max)), bar: barNode.addComponent(Graphics), buffs: new Map(), status: statusLabel(fr) };
+        }
+        const f: Fighter = { group, type, bid, model: model ?? "", ph: false, seq: 0, zOrder: preview ? previewZOrder(Number(o.pos), true) : 0, home: [gx, gy], side: group === 1 ? 1 : -1, row: Math.max(1, Math.min(3, Math.round((gy - 9) / 6))), root: fr, body, vitals, dead: false, files: new Map() };
+        if (vitals) drawBar(f, vitals);
         fighters.set(Number(o.pos), f);
-        if (mine !== token) return;
         roles.addChild(fr);
         if (!model) placeholder(f, String(o.object_name || bid));
+        else if (preview) {
+          poses.push((async () => {
+            const found = await skeletonFor(f, "stand2");
+            if (mine !== token) return;
+            if (!found) placeholder(f, String(o.object_name || bid));
+            else {
+              found.s.node.active = true;
+              found.s.setAnimation(0, found.anim, true);
+            }
+          })());
+        }
         else {
           // a model the release does not carry (its stand file will not load) is replaced by the placeholder
           void skeletonFor(f, "stand2").then(found => { if (!found && mine === token && !f.dead) placeholder(f, String(o.object_name || bid)); });
           void perform(f, "stand2", true);
         }
+      }
+      if (preview) {
+        // Original BattleRoleZorder for the formation slots.
+        sortPreviewRoles();
+        await Promise.all(poses);
       }
     },
     // the attacks of a round in their order: the attacker plays its action, runs to the first enemy it hits on the animation's move event and back on
@@ -483,28 +659,73 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
     // animation has no event for land together when it ends, so the total always lands)
     async play(plays) {
       const mine = token;
+      const reactions: Promise<void>[] = [];
+      if (preview) {
+        resetPreviewRound();
+        lastBanner.clear(); // Each tap starts a new cast, with one banner for all its phases.
+      }
+      try {
       for (const p of [...plays].sort((a, b) => Number(a.order) - Number(b.order))) {
         if (mine !== token) return;
-        const actor = fighters.get(Number(p.actor));
+        const actorPos = Number(p.actor);
+        const actor = fighters.get(actorPos);
         if (!actor || actor.dead) continue;
+        if (preview) {
+          for (const layer of [fxAbove, fxBelow, ...Array.from(fighters.values(), f => f.root)]) {
+            for (const effect of layer.children.filter(child => child.name.startsWith("fx_"))) {
+              effect.removeFromParent();
+              effect.destroy();
+            }
+          }
+        }
+        const cast = ++previewCastToken;
         const effects = p.effect_play as Msg[];
-        const attack = attackOf(fx, Number(p.skill_bid), effects.map(e => Number(e.effect_bid)));
+        const attackBids = effects.map(e => Number(e.effect_bid)).filter(id => !preview || fx.am?.[String(id)] !== "none");
+        const attack = attackOf(fx, Number(p.skill_bid), attackBids);
         const victim = effects.map(e => fighters.get(Number(e.target))).find(t => t && t.group !== actor.group);
         await showSkillName(actor, Number(p.skill_bid));
         if (mine !== token) return;
         const plan: MovePlan = movePlan(fx, actor.model, attack.animeRes, attack.anim);
+        const movementTargets = effects.map(e => fighters.get(Number(e.target))).filter((f): f is Fighter => !!f);
+        const movementTarget = movementTargets.find(f => f.side !== actor.side) ?? movementTargets[movementTargets.length - 1] ?? actor;
+        const firstPosition = Math.min(...effects.map(e => Number(e.target)));
+        const targetSlot = firstPosition > 9 ? firstPosition - 9 : firstPosition;
+        if (preview) {
+          // BattleModel.initOrder restores the caster and the normalized target slot.
+          resetPreviewZOrder(actor, actorPos);
+          const firstTarget = fighters.get(targetSlot);
+          if (firstTarget) resetPreviewZOrder(firstTarget, targetSlot);
+        }
+        const targetRow = Number.isFinite(targetSlot) ? (targetSlot - 1) % 3 + 1 : actor.row;
         const shakeId = effects.map(e => effectInfo(fx, Number(e.effect_bid))?.shakeId ?? 0).find(id => id !== 0) ?? 0;
-        const parts = effects.map(e => ({ e, n: effectInfo(fx, Number(e.effect_bid))?.splitHurt ?? 1, done: 0 }));
+        const parts = preview ? [] : effects.map(e => ({ e, n: effectInfo(fx, Number(e.effect_bid))?.splitHurt ?? 1, done: 0 }));
         const pending: Promise<void>[] = [];
         // the skill's effect models: the lists of its effect rows play at the animation's ready, attack (with the scene's area effects) and first hit
         const spot = (f: Fighter): FxSpot => ({ root: f.root, side: f.side, height: 150 });
         const bids = effects.map(e => Number(e.effect_bid));
         const targets = effects.map(e => fighters.get(Number(e.target))).filter((t): t is Fighter => !!t && t.group !== actor.group);
+        const isCurrent = preview ? () => mine === token && cast === previewCastToken : undefined;
+        const layers = { above: fxAbove, below: fxBelow };
         const playFx = (list: number, onTargets: boolean) => {
-          if (!fxRes) return;
+          if (!fxRes || mine !== token) return;
+          if (preview && onTargets) {
+            const seen = new Map<Fighter, Set<number>>();
+            for (const effect of effects) {
+              const target = fighters.get(Number(effect.target));
+              if (!target) continue;
+              const ids = seen.get(target) ?? new Set<number>();
+              seen.set(target, ids);
+              for (const id of entitiesOf(fxRes, [Number(effect.effect_bid)], list)) {
+                if (ids.has(id)) continue;
+                ids.add(id);
+                playEntity(fxRes, id, list, spot(actor), spot(target), layers, isCurrent);
+              }
+            }
+            return;
+          }
           for (const id of entitiesOf(fxRes, bids, list)) {
-            if (onTargets) for (const t of new Set(targets)) playEntity(fxRes, id, list, spot(actor), spot(t), { above: fxAbove, below: fxBelow });
-            else playEntity(fxRes, id, list, spot(actor), victim ? spot(victim) : undefined, { above: fxAbove, below: fxBelow });
+            if (onTargets) for (const t of new Set(targets)) playEntity(fxRes, id, list, spot(actor), spot(t), layers);
+            else playEntity(fxRes, id, list, spot(actor), victim ? spot(victim) : undefined, layers, isCurrent);
           }
         };
         // the skill's black screen: from its delay until the attacker is done
@@ -514,29 +735,109 @@ export async function buildBattleScene(canvas: Node): Promise<BattleScene> {
           const others = black.hideOthers ? Array.from(fighters.values()).filter(o => o !== actor && !o.dead && targets.indexOf(o) < 0) : [];
           blackTimer = setTimeout(() => { if (mine === token) blackOn(black.alpha, others); }, black.delay * 1000);
         }
-        let hitFx = false;
+        let hitFx = false, readyFx = false, attackFx = false;
+        const ready = () => {
+          if (preview && readyFx) return;
+          readyFx = true;
+          playFx(FxList.ready, false);
+        };
+        const release = () => {
+          if (preview && attackFx) return;
+          attackFx = true;
+          playFx(FxList.attack, false);
+          playFx(FxList.area, false);
+        };
         const land = () => {
-          if (!hitFx) { hitFx = true; playFx(FxList.hit, true); }
+          if (mine !== token) return;
+          if (preview) {
+            const reacting = new Set<Fighter>();
+            for (const effect of effects) {
+              const target = fighters.get(Number(effect.target));
+              const info = effectInfo(fx, Number(effect.effect_bid));
+              if (target && !target.ph && target.group !== actor.group && info && !info.noHurt) reacting.add(target);
+            }
+            for (const target of reacting) reactions.push(previewHurt(target));
+          }
+          if (!hitFx) {
+            hitFx = true;
+            if (preview) {
+              ready();
+              release();
+            }
+            playFx(FxList.hit, true);
+          }
           for (const part of parts) if (part.done < part.n) pending.push(hit(part.e, ++part.done, part.n));
         };
-        const swing = perform(actor, attack.anim, false, {
-          hit: land,
-          ready: () => playFx(FxList.ready, false),
-          attack: () => { playFx(FxList.attack, false); playFx(FxList.area, false); },
+        const hooks: Hooks = {
+          hit: land, ready, attack: release,
           move: () => {
-            if (!victim || actor.ph) return; // no enemy to run to (a heal or a status), or a disc, which lunges by itself
-            actor.root.setSiblingIndex(roles.children.length); // to the top, so it runs over the others
-            void runTo(actor, moveTarget(plan, actor.side, actor.home, victim.home, actor.row), plan.delay, plan.time);
+            if (actor.ph) return;
+            if (!preview) actor.root.setSiblingIndex(roles.children.length);
+            void runTo(actor, moveTarget(plan, actor.side, actor.home, movementTarget.home, targetRow, W / 80), plan.delay, plan.time);
           },
-          back: () => { if (victim && !actor.ph) void runTo(actor, backTarget(plan, actor.side, actor.home, victim.home), plan.backDelay, plan.backTime); },
-          shake: () => { if (shakeId) void shake(shakeId); },
-        });
-        await swing;
+          back: () => {
+            if (!actor.ph) void runTo(actor, backTarget(plan, actor.side, actor.home, movementTarget.home), plan.backDelay, plan.backTime);
+          },
+          shake: () => {
+            if (!shakeId) return;
+            const shaking = shake(shakeId);
+            if (preview) pending.push(shaking);
+          },
+        };
+        const scripted = preview ? bids.map(id => fx.script?.[String(id)]).find(Boolean) : undefined;
+        const restorePose = !preview || !bids.some(id => fx.ps?.[String(id)] === 0);
+        const animated = !preview || bids.some(id => fx.am?.[String(id)] !== "none" && !!effectInfo(fx, id)?.anim);
+        try {
+          let attackFinished: Promise<void> | undefined;
+          if (scripted) {
+            for (const group of scripted) {
+              await Promise.all(group.map(async action => {
+                const args = action.args;
+                const delay = Number(args[0] ?? 0) / 30;
+                await wait(delay * 1000);
+                if (mine !== token) return;
+                if (action.op === "attack") {
+                  await perform(actor, attack.anim, false, hooks, attack.animeRes, Number(args[3]) === 1, restorePose);
+                } else if (action.op === "fadeOut" || action.op === "fadeIn") {
+                  const opacity = actor.body.getComponent(UIOpacity) ?? actor.body.addComponent(UIOpacity);
+                  Tween.stopAllByTarget(opacity);
+                  tween(opacity).to(Number(args[1]) * 2 / 60, { opacity: action.op === "fadeOut" ? 0 : 255 }).start();
+                } else {
+                  const scriptedPlan: MovePlan = { ...plan, area: false, col: Number(args[10]) === 1,
+                    reverse: Number(args[9]) === 1, x: Number(args[2]), y: Number(args[3]) || 0, backX: Number(args[2]) };
+                  const dest = action.op === "moveBack"
+                    ? backTarget(scriptedPlan, actor.side, actor.home, movementTarget.home)
+                    : moveTarget(scriptedPlan, actor.side, actor.home, movementTarget.home, targetRow, W / 80);
+                  await runTo(actor, dest, 0, Number(args[1]) / 60, false);
+                }
+              }));
+              if (mine !== token) return;
+            }
+          } else if (animated) {
+            await perform(actor, attack.anim, false, hooks, attack.animeRes, false, restorePose);
+            if (preview && mine === token) attackFinished = wait(100); // SkillAct's delayed actFinish.
+          } else {
+            ready(); release(); land();
+          }
+          await Promise.all([attackFinished, ...Array.from(motions.get(actor) ?? [], m => m.done)]);
+        } finally {
+          clearTimeout(blackTimer);
+          if (mine === token && black) blackOff();
+        }
+        if (mine !== token) { clearTimeout(blackTimer); return; }
         while (parts.some(part => part.done < part.n)) land();
         await Promise.all(pending);
+        if (mine !== token) { clearTimeout(blackTimer); return; }
         if (black) { clearTimeout(blackTimer); blackOff(); }
-        await settle(actor);
-        await wait(200);
+        if (!preview) await settle(actor);
+        if (!preview) await wait(200);
+      }
+      await Promise.all(reactions);
+      } finally {
+        if (preview && mine === token) {
+          resetPreviewRound();
+          await Promise.all(Array.from(fighters.values(), f => perform(f, "stand2", true)));
+        }
       }
     },
   };

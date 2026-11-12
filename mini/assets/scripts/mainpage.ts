@@ -1,6 +1,6 @@
 // The main city page: the original `mainui/mainui_view` (top bar with head, level, power and currencies; bottom tab bar) built from its
 // layout in the release, filled from the main-city data the server sent. The city scene behind it and the tabs' pages come later.
-import { Label, Mask, Node, Sprite, UITransform } from "cc";
+import { Label, Mask, Node, Sprite, UITransform, view } from "cc";
 import { loadJson, spriteFrame } from "./cdn";
 import { LNode, buildLayout } from "./ui";
 import { W, H } from "./design";
@@ -23,6 +23,20 @@ export async function buildMainPage(canvas: Node): Promise<MainPage> {
   });
   const by = built.byName;
   built.root.setPosition(-W / 2, -H / 2, 0); // the layout's origin is its bottom-left corner
+  // the original's adaptScreen: top_container hangs from the visible top edge, bottom_container from the visible bottom edge. This HUD stays in the centred
+  // W x H design area (a taller FIXED_WIDTH screen shows extra room outside it), so the two bars move out by half of the extra height; W x H and wider keep the layout's own Y
+  const topBar = by.get("top_container")!;
+  const bottomBar = by.get("bottom_container")!;
+  const topY = topBar.position.y;
+  const bottomY = bottomBar.position.y;
+  const fitScreen = () => {
+    const extra = Math.max(0, (view.getVisibleSize().height - H) / 2);
+    topBar.setPosition(topBar.position.x, topY + extra, topBar.position.z);
+    bottomBar.setPosition(bottomBar.position.x, bottomY - extra, bottomBar.position.z);
+  };
+  fitScreen();
+  view.on("design-resolution-changed", fitScreen); // a window resize changes the visible height
+  built.root.on(Node.EventType.NODE_DESTROYED, () => view.off("design-resolution-changed", fitScreen));
   const label = (n: string) => by.get(n)?.getComponent(Label);
   const tabs = [1, 2, 3, 4, 5, 6, 7].map(i => by.get(`mainui_tab_${i}`)!);
   const icons = await buildIconBar(built.root);

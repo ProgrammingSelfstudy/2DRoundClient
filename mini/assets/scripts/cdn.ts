@@ -4,6 +4,7 @@ import { ImageAsset, Rect, Size, SpriteFrame, Texture2D, Vec2, assetManager } fr
 
 interface ClientConfig {
   cdn_base: string;
+  ws_url?: string; // the gateway's WebSocket address; missing or "" on a LAN set-up, where the page's own host serves it on 8802
   force_update: boolean;
   notice: string;
   release: { version: string; manifest_url: string } | null;
@@ -21,7 +22,7 @@ let cdnBase = "";
 let manifest: Manifest | null = null;
 const frames = new Map<string, Promise<SpriteFrame>>();
 
-export async function loadRelease(): Promise<{ version: string; notice: string; forceUpdate: boolean }> {
+export async function loadRelease(): Promise<{ version: string; notice: string; forceUpdate: boolean; wsUrl: string }> {
   const res = await fetch(`${LOGIN_API}/client/config?platform=${PLATFORM}&ver=${CLIENT_VERSION}`);
   if (!res.ok) throw new Error(`/client/config ${res.status}`);
   const cfg = (await res.json()) as ClientConfig;
@@ -30,7 +31,7 @@ export async function loadRelease(): Promise<{ version: string; notice: string; 
   const mres = await fetch(cfg.release.manifest_url, { cache: "no-cache" });
   if (!mres.ok) throw new Error(`manifest ${mres.status}`);
   manifest = (await mres.json()) as Manifest;
-  return { version: manifest.version, notice: cfg.notice, forceUpdate: cfg.force_update };
+  return { version: manifest.version, notice: cfg.notice, forceUpdate: cfg.force_update, wsUrl: cfg.ws_url ?? "" };
 }
 
 export function fileUrl(logical: string): string {

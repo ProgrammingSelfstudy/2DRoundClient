@@ -26,8 +26,8 @@ export interface FxLayers { above: Node; below: Node }
 // one model played once at a place and then removed; a model the release lacks is skipped. The action names the animation and, for most models,
 // the file it is in (action, action1, ...), as SpineRenderer.New(position, res, scale, loop, action) does; a model with the one file "action"
 // keeps all its animations there (E80170's action1 and action2), so that file is looked in when the model has none of the action's name
-async function once(res: string, action: string, parent: Node, x: number, y: number, scale: number, flip: number): Promise<void> {
-  if (!res) return;
+async function once(res: string, action: string, parent: Node, x: number, y: number, scale: number, flip: number, isCurrent?: () => boolean): Promise<void> {
+  if (!res || isCurrent?.() === false) return;
   const own = hasFile(`spine/fx/${res}/${action}.json`);
   const base = `spine/fx/${res}/${own ? action : "action"}`;
   if (!hasFile(`${base}.json`)) return;
@@ -35,13 +35,16 @@ async function once(res: string, action: string, parent: Node, x: number, y: num
   n.layer = parent.layer;
   n.addComponent(UITransform);
   const s = n.addComponent(sp.Skeleton);
-  try { setModel(s, await spineData(base)); } catch (e) { console.warn(`skill fx ${res}: ${(e as Error).message}`); return; }
-  if (!parent.isValid) return;
+  try {
+    const data = await spineData(base);
+    if (!parent.isValid || isCurrent?.() === false) { n.destroy(); return; }
+    setModel(s, data);
+  } catch (e) { n.destroy(); console.warn(`skill fx ${res}: ${(e as Error).message}`); return; }
   n.setPosition(x, y, 0);
   n.setScale(flip * scale, scale, 1);
   parent.addChild(n);
   const anims = Object.keys((s.skeletonData.skeletonJson as { animations?: object } | null)?.animations ?? {});
-  const anim = s.findAnimation(action) ? action : own ? anims[0] : ""; // the shared file is only used for the animation asked for
+  const anim = s.findAnimation(action) ? action : own || (isCurrent && anims.length === 1) ? anims[0] : "";
   if (!anim) { n.destroy(); return; }
   s.setCompleteListener(() => { if (n.isValid) n.destroy(); });
   s.setAnimation(0, anim, false);
@@ -50,7 +53,7 @@ async function once(res: string, action: string, parent: Node, x: number, y: num
 // Which of an entity's play types each list plays (BattleModel.attackReady / attackPoint / playSceneAreaEffect / playHurtEffect): the ready list plays
 // the ones on the caster (1) and on the field (3, 4), the attack list only those on the caster, the area list those on the field (2, 3, 4), and the
 // hit list every one, on the target
-export function playEntity(t: FxRes, id: number, list: number, caster: FxSpot, target: FxSpot | undefined, layers: FxLayers): void {
+export function playEntity(t: FxRes, id: number, list: number, caster: FxSpot, target: FxSpot | undefined, layers: FxLayers, isCurrent?: () => boolean): void {
   const r = t.r[String(id)];
   if (!r) return;
   const [up, down, upAct, downAct, type, scale, , xFix, yFix] = r;
@@ -58,16 +61,16 @@ export function playEntity(t: FxRes, id: number, list: number, caster: FxSpot, t
   const at = (spot: FxSpot, isTarget: boolean) => {
     // on a fighter: over it at y_fix (the top of the model when 0; a hit effect takes y_fix as a percent of the height, 50 when 0), under it at its feet
     const upY = isTarget ? (yFix || 50) / 100 * spot.height : (yFix === 0 ? spot.height - 15 : yFix);
-    void once(up, upAct || "action", spot.root, xFix * dir, upY, k, dir);
-    void once(down, downAct || "action", spot.root, xFix * dir, 0, k, dir);
+    void once(up, upAct || "action", spot.root, xFix * dir, upY, k, dir, isCurrent);
+    void once(down, downAct || "action", spot.root, xFix * dir, 0, k, dir, isCurrent);
   };
   const field = () => {
     // the middle (2), or the casting side (3) or the other (4) at 22 or 78 percent of the width, a quarter up
     const mine = caster.side === 1;
     const x = type === 2 ? W / 2 : ((type === 3) === mine ? W * 0.22 : W * 0.78) + xFix * dir;
     const y = H / 4 + yFix;
-    void once(up, upAct || "action", layers.above, x, y, k, dir);
-    void once(down, downAct || "action", layers.below, x, y, k, dir);
+    void once(up, upAct || "action", layers.above, x, y, k, dir, isCurrent);
+    void once(down, downAct || "action", layers.below, x, y, k, dir, isCurrent);
   };
   if (list === FxList.hit) { if (target) at(target, true); }
   else if (list === FxList.attack) { if (type === 1) at(caster, false); }
