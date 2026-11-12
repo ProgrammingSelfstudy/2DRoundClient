@@ -26,7 +26,7 @@ const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 const BAR_W = 80, BAR_H = 8;
 const ACTION_FILES = ["action", "action1", "action2", "action3", "action4", "action5", "action6", "action7", "action8", "action9"];
 
-interface Hooks { landTimes?: (seconds: number[]) => void; hit?: (k: number) => void; move?: () => void; back?: () => void; shake?: () => void; ready?: () => void; attack?: () => void }
+interface Hooks { landed?: (k: number, seconds: number) => void; landTimes?: (seconds: number[]) => void; hit?: (k: number) => void; move?: () => void; back?: () => void; shake?: () => void; ready?: () => void; attack?: () => void }
 
 export interface BattleScene {
   root: Node;
@@ -43,7 +43,7 @@ export interface BattleScene {
 }
 
 // what the tuning page needs to know of the skill just played: whose animation, the original's run before any correction, the effect entities
-export interface CastInfo { hits: number[]; model: string; anim: string; animeRes: string; base: MovePlan; entities: number[]; skill: number }
+export interface CastInfo { landed: number[]; hits: number[]; model: string; anim: string; animeRes: string; base: MovePlan; entities: number[]; skill: number }
 
 // A fighter's position node holds the body (flipped for the second group; one Spine per action file, only the playing one shown), a
 // hit-point bar and the floating numbers, which must not be flipped with the body.
@@ -245,7 +245,8 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
   const perform = async (f: Fighter, name: string, loop: boolean, on?: Hooks, animeRes?: string, reverse = false, restorePose = true): Promise<void> => {
     const generation = token;
     let ticks = 0;
-    const tick = () => { ticks++; on?.hit?.(ticks); };
+    let startedAt = 0; // when the animation began, for the seconds the tuning page shows next to the original hit time
+    const tick = () => { ticks++; on?.landed?.(ticks, (performance.now() - startedAt) / 1000); on?.hit?.(ticks); };
     const land = () => { if (ticks === 0) tick(); };
     const mine = ++f.seq;
     const found = await skeletonFor(f, name, animeRes);
@@ -285,6 +286,7 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
         else if (n === "shake_point") on?.shake?.();
       });
       found.s.setCompleteListener(() => { clearTimeout(timer); resolve(); });
+      startedAt = performance.now();
       found.s.setAnimation(0, found.anim, false);
     });
     if (generation !== token) return;
@@ -704,7 +706,7 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
         if (mine !== token) return;
         const basePlan: MovePlan = movePlan(fx, actor.model, attack.animeRes, attack.anim);
         const plan: MovePlan = applyMove(basePlan, actor.model, attack.anim);
-        lastCast = { hits: [], model: actor.model, anim: attack.anim, animeRes: attack.animeRes, base: basePlan, skill: Number(p.skill_bid), entities: [] };
+        lastCast = { landed: [], hits: [], model: actor.model, anim: attack.anim, animeRes: attack.animeRes, base: basePlan, skill: Number(p.skill_bid), entities: [] };
         const movementTargets = effects.map(e => fighters.get(Number(e.target))).filter((f): f is Fighter => !!f);
         const movementTarget = movementTargets.find(f => f.side !== actor.side) ?? movementTargets[movementTargets.length - 1] ?? actor;
         const firstPosition = Math.min(...effects.map(e => Number(e.target)));
@@ -789,7 +791,7 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
           for (const part of parts) if (part.done < part.n) pending.push(hit(part.e, ++part.done, part.n));
         };
         const hooks: Hooks = {
-          hit: land, ready, attack: release, landTimes: times => { if (lastCast) lastCast.hits = times; },
+          hit: land, ready, attack: release, landTimes: times => { if (lastCast) lastCast.hits = times; }, landed: (k, seconds) => { if (lastCast) lastCast.landed[k - 1] = seconds; },
           move: () => {
             if (actor.ph) return;
             if (!preview) actor.root.setSiblingIndex(roles.children.length);

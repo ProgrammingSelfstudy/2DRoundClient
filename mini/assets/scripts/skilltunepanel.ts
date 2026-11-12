@@ -58,6 +58,9 @@ export async function runSkillTune(scene: BattleScene, spec: string): Promise<vo
   const status = document.createElement("div");
   status.style.cssText = "margin:6px 0;min-height:20px;color:#9f9";
 
+  const measured = document.createElement("div"); // the seconds the damage really landed at on the last cast (wall clock, so the speed counts)
+  measured.style.cssText = "margin:2px 0 6px;color:#9cf";
+
   const build = (c: CastInfo) => {
     box.textContent = "";
     const key = animKey(c.model, c.anim);
@@ -77,6 +80,7 @@ export async function runSkillTune(scene: BattleScene, spec: string): Promise<vo
       build(c);
     });
     box.appendChild(status);
+    box.appendChild(measured);
 
     title(box, "动画速度(命中也随它提前或推后)");
     row(box, "速度倍数", 0.3, 2.5, 0.05, speedOf(c.model, c.anim), v => { (tune().anim[key] ??= {}).speed = v; });
@@ -104,6 +108,7 @@ export async function runSkillTune(scene: BattleScene, spec: string): Promise<vo
 
   setInterval(() => { // a new cast: rebuild the panel for its skill
     const c = scene.lastCast;
+    if (c) measured.textContent = c.landed.length ? `上次实际命中:${c.landed.map(t => t.toFixed(2)).join("、")} 秒` : "上次实际命中:还没有";
     if (c && `${c.skill}/${c.model}/${c.anim}/${c.hits.length}` !== shown) { shown = `${c.skill}/${c.model}/${c.anim}/${c.hits.length}`; build(c); }
   }, 300);
   box.textContent = "先点左边的技能按钮放一次,再在这里调。";
