@@ -3,7 +3,7 @@
 
   <out>/<阵营>/<bid>_<名字>/
       模型_<Hxxxxx>/<动作>.json|atlas|webp   the hero's Spine actions (spine/hero/<model>/)
-      技能_<技能号>_<名字>/图标.webp          the skill icon
+      技能_<技能号>_<名字>/图标_<号>.webp   (levels of a skill with the same name, icon and effects share one folder)          the skill icon
       技能_<技能号>_<名字>/特效_<Exxxxx>/...  the effect models the skill's effect rows play (spine/fx/<model>/)
       头像_<星>.webp                          the head icon of each star
       信息.txt                                 model per star, skills per star, anything the tables name but the release lacks
@@ -66,7 +66,7 @@ def main():
             continue
         hdir = f"{out}/{CAMP.get(camp, str(camp))}/{bid}_{safe(name)}"
         info = [f"{name}  bid {bid}  阵营 {camp}  初始星 {row[2]}"]
-        models, seen_skill, heads = {}, set(), set()
+        models, skills_seen, heads = {}, {}, set()
         for star, key in stars:
             model, skills = HS["h"][key]
             models.setdefault(model, []).append(star)
@@ -76,16 +76,8 @@ def main():
                 heads.add(hid)
                 put(f"icons/head/{hid}.webp", f"{hdir}/头像_{star}星起_{hid}.webp")
             for s in skills:
-                if s in seen_skill:
-                    continue
-                seen_skill.add(s)
                 sname, effs = HS["k"].get(str(s), ["?", []])
-                sdir = f"{hdir}/技能_{s}_{safe(sname)}"
                 icon = (SI["k"].get(str(s)) or [None, None, None])[2]
-                if icon and f"icons/skill/{icon}.webp" in man:
-                    put(f"icons/skill/{icon}.webp", f"{sdir}/图标_{icon}.webp")
-                else:
-                    missing.append(f"{name} 技能{s} {sname}: 图标 {icon} 不在发布包")
                 fxs = []
                 for e in effs:
                     ents = (FR["l"].get(str(e)) or [[]] * 6)[3]  # the entities the effect row plays
@@ -93,13 +85,35 @@ def main():
                         m = (FR["r"].get(str(ent)) or [""])[0]
                         if m and m not in fxs:
                             fxs.append(m)
+                # skill levels that differ only by number (same name, icon and effect models) share one folder
+                sig = (sname, icon, tuple(fxs))
+                if sig in skills_seen:
+                    skills_seen[sig][1].append(s) if s not in skills_seen[sig][1] else None
+                    continue
+                skills_seen[sig] = (f"{hdir}/技能_{s}_{safe(sname)}", [s])
+                sdir = skills_seen[sig][0]
+                if icon and f"icons/skill/{icon}.webp" in man:
+                    put(f"icons/skill/{icon}.webp", f"{sdir}/图标_{icon}.webp")
+                else:
+                    missing.append(f"{name} 技能{s} {sname}: 图标 {icon} 不在发布包")
                 for m in fxs:
                     if not put_dir(f"spine/fx/{m}", f"{sdir}/特效_{m}"):
                         missing.append(f"{name} 技能{s} {sname}: 特效 {m} 不在发布包")
+        for sdir, ids in skills_seen.values():
+            info.append(f"{os.path.basename(sdir)}: 技能号 {ids} 用同一图标和特效")
+        # models whose files are byte-identical share one folder
+        content = {}
         for model, ss in models.items():
-            n = put_dir(f"spine/hero/{model}", f"{hdir}/模型_{model}")
-            if not n:
+            files = by_prefix.get(f"spine/hero/{model}", [])
+            if not files:
                 missing.append(f"{name}: 模型 {model} 不在发布包（星 {ss}）")
+                continue
+            content.setdefault(tuple(sorted((k, man[k]["hash"]) for k in files)), []).append((model, ss))
+        for group in content.values():
+            first = group[0][0]
+            put_dir(f"spine/hero/{first}", f"{hdir}/模型_{first}")
+            if len(group) > 1:
+                info.append(f"模型_{first}: 内容与 {[g[0] for g in group[1:]]} 完全相同")
         os.makedirs(hdir, exist_ok=True)
         open(f"{hdir}/信息.txt", "w", encoding="utf-8").write("\n".join(info) + "\n")
         total += 1
