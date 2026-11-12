@@ -1,7 +1,7 @@
 // The hand corrections of skill playing (mini/assets/scripts/skilltune.ts): absent means the original's value, a save keeps only what differs.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { animKey, applyMove, fxOf, pruned, setTune, speedOf, tune } from "../../mini/assets/scripts/skilltune.ts";
+import { animKey, applyMove, fxOf, hitShiftOf, pruned, setTune, speedOf, tune } from "../../mini/assets/scripts/skilltune.ts";
 import type { MovePlan } from "../../mini/assets/scripts/skillplan.ts";
 
 const plan: MovePlan = { delay: 0.1, time: 0.3, x: 5, y: 0, area: false, col: false, reverse: false, backDelay: 0.2, backTime: 0.3, backX: -4 };
@@ -21,6 +21,15 @@ test("a correction replaces only the fields it names, for that model and animati
   assert.equal(applyMove(plan, "H2", "action1"), plan);
   assert.deepEqual(fxOf(70106), { dx: 12, dy: 0, scale: 1.5, delay: 0.2 });
   assert.equal(fxOf("70107").scale, 1);
+});
+
+test("the hit moment is a shift in seconds, zero when absent", () => {
+  setTune({ anim: { "H1/a": { hit: -0.2 } }, move: {}, fx: {} });
+  assert.equal(hitShiftOf("H1", "a"), -0.2);
+  assert.equal(hitShiftOf("H1", "b"), 0);
+  assert.deepEqual(pruned(tune()), { anim: { "H1/a": { hit: -0.2 } }, move: {}, fx: {} });
+  setTune({ anim: { "H1/a": { hit: 0, speed: 1 } }, move: {}, fx: {} });
+  assert.deepEqual(pruned(tune()).anim, {});
 });
 
 test("a nonsense speed or scale falls back to the original", () => {

@@ -1,10 +1,10 @@
 // Dev page ?skilltune=70501_5 (as ?skillbtn=): a button per skill of the hero, and beside the field a panel for the skill cast last. Its sliders change
 // the correction data of skilltune.ts live, "重播" casts the skill again, "保存" writes the corrections to pipeline/skill_tune.json through
 // mini/serve.py (POST /tune/skill_tune.json), from where the next release build ships them as tables/skill_tune.json.
-// What can be corrected: the playing speed of the attacker's animation (the hit lands later or sooner with it), its run to the target and back, and
+// What can be corrected: the playing speed of the attacker's animation, the moment its damage lands, its run to the target and back, and
 // each effect model's offset, size and start delay. The original's values stay in the tables; a slider at its original value saves nothing.
 import { runSkillButtons } from "./skilldemo";
-import { MOVE_KEYS, animKey, applyMove, pruned, speedOf, tune } from "./skilltune";
+import { MOVE_KEYS, animKey, applyMove, hitShiftOf, pruned, speedOf, tune } from "./skilltune";
 import type { MoveKey } from "./skilltune";
 import type { BattleScene, CastInfo } from "./battlescene";
 import type { MovePlan } from "./skillplan";
@@ -81,6 +81,9 @@ export async function runSkillTune(scene: BattleScene, spec: string): Promise<vo
     title(box, "动画速度(命中也随它提前或推后)");
     row(box, "速度倍数", 0.3, 2.5, 0.05, speedOf(c.model, c.anim), v => { (tune().anim[key] ??= {}).speed = v; });
 
+    title(box, c.hits.length ? `命中时间(原版在动画第 ${c.hits.map(h => h.toFixed(2)).join("、")} 秒)` : "命中时间(这个动画没有命中点)");
+    row(box, "命中偏移(秒)", -1.5, 1.5, 0.01, hitShiftOf(c.model, c.anim), v => { (tune().anim[key] ??= {}).hit = v; });
+
     title(box, "冲向目标和回位");
     const now = applyMove(c.base, c.model, c.anim);
     for (const k of MOVE_KEYS) {
@@ -101,7 +104,7 @@ export async function runSkillTune(scene: BattleScene, spec: string): Promise<vo
 
   setInterval(() => { // a new cast: rebuild the panel for its skill
     const c = scene.lastCast;
-    if (c && `${c.skill}/${c.model}/${c.anim}` !== shown) { shown = `${c.skill}/${c.model}/${c.anim}`; build(c); }
+    if (c && `${c.skill}/${c.model}/${c.anim}/${c.hits.length}` !== shown) { shown = `${c.skill}/${c.model}/${c.anim}/${c.hits.length}`; build(c); }
   }, 300);
   box.textContent = "先点左边的技能按钮放一次,再在这里调。";
 }

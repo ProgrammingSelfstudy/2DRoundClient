@@ -10,7 +10,7 @@ import { attackOf, backTarget, blackOf, effectInfo, hitEvent, hitShare, movePlan
 import type { Cell, Fx, MovePlan } from "./skillplan";
 import { FxList, entitiesOf, playEntity } from "./skillfx";
 import type { FxRes, FxSpot } from "./skillfx";
-import { animKey, applyMove, loadTune, speedOf, tune } from "./skilltune";
+import { applyMove, hitShiftOf, loadTune, speedOf } from "./skilltune";
 import type { Tune } from "./skilltune";
 import type { Msg } from "./shared/proto/codec";
 
@@ -26,7 +26,7 @@ const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 const BAR_W = 80, BAR_H = 8;
 const ACTION_FILES = ["action", "action1", "action2", "action3", "action4", "action5", "action6", "action7", "action8", "action9"];
 
-interface Hooks { hit?: (k: number) => void; move?: () => void; back?: () => void; shake?: () => void; ready?: () => void; attack?: () => void }
+interface Hooks { landTimes?: (seconds: number[]) => void; hit?: (k: number) => void; move?: () => void; back?: () => void; shake?: () => void; ready?: () => void; attack?: () => void }
 
 export interface BattleScene {
   root: Node;
@@ -43,7 +43,7 @@ export interface BattleScene {
 }
 
 // what the tuning page needs to know of the skill just played: whose animation, the original's run before any correction, the effect entities
-export interface CastInfo { model: string; anim: string; animeRes: string; base: MovePlan; entities: number[]; skill: number }
+export interface CastInfo { hits: number[]; model: string; anim: string; animeRes: string; base: MovePlan; entities: number[]; skill: number }
 
 // A fighter's position node holds the body (flipped for the second group; one Spine per action file, only the playing one shown), a
 // hit-point bar and the floating numbers, which must not be flipped with the body.
@@ -264,15 +264,21 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
     if (loop) { found.s.setAnimation(0, found.anim, true); return; }
     // the damage lands on the animation's hit event, or on its attack event when it has no hit (the area skills); it may run past 2 s (a
     // finishing move), so the wait for its end is its own length and a little more
-    const json = found.s.skeletonData?.skeletonJson as { animations?: { [a: string]: { events?: { name: string }[] } } } | undefined;
+    const json = found.s.skeletonData?.skeletonJson as { animations?: { [a: string]: { events?: { name: string; time?: number }[] } } } | undefined;
     const landOn = hitEvent((json?.animations?.[found.anim]?.events ?? []).map(e => e.name));
+    // where the damage lands, in seconds of the animation; a hand correction (skilltune.ts) moves it, then it is timed here instead of by the event
+    const landAt = (json?.animations?.[found.anim]?.events ?? []).filter(e => e.name.toLowerCase() === landOn).map(e => e.time ?? 0);
+    on?.landTimes?.(landAt);
+    const shift = hitShiftOf(f.model, found.anim);
+    const timers: ReturnType<typeof setTimeout>[] = [];
     await new Promise<void>(resolve => {
       const timer = setTimeout(resolve, (found.s.findAnimation(found.anim)?.duration ?? 2) / found.s.timeScale * 1000 + 500); // never wait for an animation forever
+      if (shift !== 0) for (const t of landAt) timers.push(setTimeout(() => { if (generation === token) tick(); }, Math.max(0, t + shift) / found.s.timeScale * 1000));
       found.s.setEventListener((_entry, event) => {
         if (generation !== token) return;
         const n = event.data.name.toLowerCase();
         if (n === "attack") on?.attack?.(); // the original's attackPoint, whether or not the damage lands on this event too
-        if (n === landOn) tick();
+        if (n === landOn) { if (shift === 0) tick(); }
         else if (n === "ready") on?.ready?.();
         else if (n === "move") on?.move?.();
         else if (n === "back") on?.back?.();
@@ -282,6 +288,7 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
       found.s.setAnimation(0, found.anim, false);
     });
     if (generation !== token) return;
+    if (timers.length && ticks < timers.length) await wait(Math.max(0, ...landAt.map(t => t + shift)) / found.s.timeScale * 1000 - (found.s.findAnimation(found.anim)?.duration ?? 0) / found.s.timeScale * 1000 + 30); // a landing shifted past the animation's end still comes
     land();
     if (restorePose && !f.dead && f.seq === mine) await perform(f, "stand2", true); // a hurt that ends late must not cut off the attack that began after it
   };
@@ -697,7 +704,7 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
         if (mine !== token) return;
         const basePlan: MovePlan = movePlan(fx, actor.model, attack.animeRes, attack.anim);
         const plan: MovePlan = applyMove(basePlan, actor.model, attack.anim);
-        lastCast = { model: actor.model, anim: attack.anim, animeRes: attack.animeRes, base: basePlan, skill: Number(p.skill_bid), entities: [] };
+        lastCast = { hits: [], model: actor.model, anim: attack.anim, animeRes: attack.animeRes, base: basePlan, skill: Number(p.skill_bid), entities: [] };
         const movementTargets = effects.map(e => fighters.get(Number(e.target))).filter((f): f is Fighter => !!f);
         const movementTarget = movementTargets.find(f => f.side !== actor.side) ?? movementTargets[movementTargets.length - 1] ?? actor;
         const firstPosition = Math.min(...effects.map(e => Number(e.target)));
@@ -782,7 +789,7 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
           for (const part of parts) if (part.done < part.n) pending.push(hit(part.e, ++part.done, part.n));
         };
         const hooks: Hooks = {
-          hit: land, ready, attack: release,
+          hit: land, ready, attack: release, landTimes: times => { if (lastCast) lastCast.hits = times; },
           move: () => {
             if (actor.ph) return;
             if (!preview) actor.root.setSiblingIndex(roles.children.length);

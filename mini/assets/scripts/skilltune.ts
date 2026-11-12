@@ -9,7 +9,7 @@ export type MoveKey = typeof MOVE_KEYS[number];
 
 export interface FxTune { dx?: number; dy?: number; scale?: number; delay?: number } // pixels, pixels, a factor, seconds
 export interface Tune {
-  anim: { [modelAnim: string]: { speed?: number } }; // "<model>/<animation>": the playing speed as a factor of the normal one
+  anim: { [modelAnim: string]: { speed?: number; hit?: number } }; // "<model>/<animation>": the playing speed as a factor of the normal one; hit moves the moment the damage lands, in seconds of the animation (negative: sooner)
   move: { [modelAnim: string]: Partial<Record<MoveKey, number>> }; // "<model>/<animation>": the run to the target and back
   fx: { [entity: string]: FxTune }; // an effect entity (tables/skill_fx_res.json) by its id
 }
@@ -29,6 +29,11 @@ export const speedOf = (model: string, anim: string): number => {
   return typeof s === "number" && s > 0 ? s : 1;
 };
 
+export const hitShiftOf = (model: string, anim: string): number => {
+  const h = current.anim[animKey(model, anim)]?.hit;
+  return typeof h === "number" && Number.isFinite(h) ? h : 0;
+};
+
 export function applyMove(p: MovePlan, model: string, anim: string): MovePlan {
   const o = current.move[animKey(model, anim)];
   if (!o) return p;
@@ -45,7 +50,12 @@ export const fxOf = (entity: number | string): Required<FxTune> => {
 // What a save writes: only the values that differ from the original's, so a field put back to its default leaves the file.
 export function pruned(t: Tune, base: { move?: { [k: string]: MovePlan } } = {}): Tune {
   const out = empty();
-  for (const [k, v] of Object.entries(t.anim)) if (v.speed !== undefined && v.speed !== 1) out.anim[k] = { speed: v.speed };
+  for (const [k, v] of Object.entries(t.anim)) {
+    const keep: { speed?: number; hit?: number } = {};
+    if (v.speed !== undefined && v.speed !== 1) keep.speed = v.speed;
+    if (v.hit) keep.hit = v.hit;
+    if (Object.keys(keep).length) out.anim[k] = keep;
+  }
   for (const [k, v] of Object.entries(t.move)) {
     const b = base.move?.[k];
     const keep: Partial<Record<MoveKey, number>> = {};
