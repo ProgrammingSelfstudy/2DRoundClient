@@ -10,6 +10,8 @@ import { attackOf, backTarget, blackOf, effectInfo, hitEvent, hitShare, movePlan
 import type { Cell, Fx, MovePlan } from "./skillplan";
 import { FxList, entitiesOf, playEntity } from "./skillfx";
 import type { FxRes, FxSpot } from "./skillfx";
+import { animKey, applyMove, loadTune, speedOf, tune } from "./skilltune";
+import type { Tune } from "./skilltune";
 import type { Msg } from "./shared/proto/codec";
 
 interface Models { p: { [bidStar: string]: string }; u: { [unit: string]: [string, number] } }
@@ -37,7 +39,11 @@ export interface BattleScene {
   banner(text: string, win: boolean): void; // the result, over the field
   show(on: boolean): void;
   onTap(f: () => void): void;
+  lastCast: CastInfo | null; // the skill played last, for the ?skilltune= page
 }
+
+// what the tuning page needs to know of the skill just played: whose animation, the original's run before any correction, the effect entities
+export interface CastInfo { model: string; anim: string; animeRes: string; base: MovePlan; entities: number[]; skill: number }
 
 // A fighter's position node holds the body (flipped for the second group; one Spine per action file, only the playing one shown), a
 // hit-point bar and the floating numbers, which must not be flipped with the body.
@@ -62,7 +68,8 @@ function cell(group: number, pos: number): number[] {
 
 export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" = "battle"): Promise<BattleScene> {
   const preview = mode === "preview";
-  const [models, fx, fxRes, buffTable, skillNames] = await Promise.all([
+  const [, models, fx, fxRes, buffTable, skillNames] = await Promise.all([
+    loadTune(() => loadJson<Tune>("tables/skill_tune.json")),
     loadJson<Models>("tables/battle_models.json"),
     loadJson<Fx>("tables/skill_fx.json"),
     loadJson<FxRes>("tables/skill_fx_res.json").catch(() => null), // a release without the effect table plays no skill effects
@@ -101,6 +108,7 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
   const top = layer("top", 0, 0); // the result banner, above the fighters
   const roundNode = layer("round", 0, 0); // the round counter, kept apart from the banner so a new fight can clear one without the other
   let tapped = () => {};
+  let lastCast: CastInfo | null = null;
   root.on(Node.EventType.TOUCH_END, () => tapped());
   let token = 0;
   const fighters = new Map<number, Fighter>();
@@ -251,6 +259,7 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
     if (!found || f.dead) { land(); return; }
     await showOnly(f, found.s);
     if (generation !== token) return;
+    found.s.timeScale = (preview ? 1.2 : 1) * speedOf(f.model, found.anim); // 1.2: the original's battle_act_data.speed_scale_1; the factor is a hand correction
     f.body.setScale(Math.abs(f.body.scale.x) * f.side * (reverse ? -1 : 1), f.body.scale.y, 1);
     if (loop) { found.s.setAnimation(0, found.anim, true); return; }
     // the damage lands on the animation's hit event, or on its attack event when it has no hit (the area skills); it may run past 2 s (a
@@ -572,6 +581,7 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
       else for (const f of fighters.values()) cancelMotion(f);
     },
     onTap(f) { tapped = f; },
+    get lastCast() { return lastCast; },
     round(n, max) {
       roundNode.removeAllChildren();
       if (n > 0) text(roundNode, `第${n}/${max}回合`, 30, new Color(255, 240, 200, 255), W / 2, H - 150);
@@ -685,7 +695,9 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
         const victim = effects.map(e => fighters.get(Number(e.target))).find(t => t && t.group !== actor.group);
         await showSkillName(actor, Number(p.skill_bid));
         if (mine !== token) return;
-        const plan: MovePlan = movePlan(fx, actor.model, attack.animeRes, attack.anim);
+        const basePlan: MovePlan = movePlan(fx, actor.model, attack.animeRes, attack.anim);
+        const plan: MovePlan = applyMove(basePlan, actor.model, attack.anim);
+        lastCast = { model: actor.model, anim: attack.anim, animeRes: attack.animeRes, base: basePlan, skill: Number(p.skill_bid), entities: [] };
         const movementTargets = effects.map(e => fighters.get(Number(e.target))).filter((f): f is Fighter => !!f);
         const movementTarget = movementTargets.find(f => f.side !== actor.side) ?? movementTargets[movementTargets.length - 1] ?? actor;
         const firstPosition = Math.min(...effects.map(e => Number(e.target)));
@@ -703,6 +715,7 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
         // the skill's effect models: the lists of its effect rows play at the animation's ready, attack (with the scene's area effects) and first hit
         const spot = (f: Fighter): FxSpot => ({ root: f.root, side: f.side, height: 150 });
         const bids = effects.map(e => Number(e.effect_bid));
+        if (fxRes && lastCast) lastCast.entities = Array.from(new Set([0, 1, 2, 3, 4, 5].reduce<number[]>((all, list) => all.concat(entitiesOf(fxRes, bids, list)), [])));
         const targets = effects.map(e => fighters.get(Number(e.target))).filter((t): t is Fighter => !!t && t.group !== actor.group);
         const isCurrent = preview ? () => mine === token && cast === previewCastToken : undefined;
         const layers = { above: fxAbove, below: fxBelow };

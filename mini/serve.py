@@ -7,6 +7,7 @@ immutable, so they get a long cache lifetime; the manifest does not.
   python3 mini/serve.py <host> <port> [login-base] [cdn-root]     (login-base defaults to http://127.0.0.1:8081)
 """
 import http.server
+import json
 import mimetypes
 import os
 import sys
@@ -15,6 +16,8 @@ import urllib.request
 HOST, PORT = sys.argv[1], int(sys.argv[2])
 LOGIN = (sys.argv[3] if len(sys.argv) > 3 else "http://127.0.0.1:8081").rstrip("/")
 CDN = os.path.abspath(sys.argv[4]) if len(sys.argv) > 4 else None
+TUNE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../pipeline/skill_tune.json")  # the hand corrections of skill playing, saved by ?skilltune=
+TUNE_MAX = 1 << 20
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "build/web-mobile")
 
 
@@ -52,7 +55,41 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             out.append((k.strip(), v.strip()))
         return out
 
+    def tune_get(self):
+        try:
+            body = open(TUNE, "rb").read()
+        except FileNotFoundError:
+            body = b'{"anim":{},"move":{},"fx":{}}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):  # only the correction file can be written: the body must be a JSON object of the three known tables
+        if self.path.split("?")[0] != "/tune/skill_tune.json":
+            return self.send_error(404)
+        n = int(self.headers.get("Content-Length") or 0)
+        try:
+            if n <= 0 or n > TUNE_MAX:
+                raise ValueError("size")
+            data = json.loads(self.rfile.read(n))
+            if not isinstance(data, dict) or set(data) - {"anim", "move", "fx"} or not all(isinstance(v, dict) for v in data.values()):
+                raise ValueError("shape")
+        except ValueError:
+            return self.send_error(400)
+        tmp = TUNE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({k: data.get(k, {}) for k in ("anim", "move", "fx")}, f, ensure_ascii=False, indent=1, sort_keys=True)
+            f.write("\n")
+        os.replace(tmp, TUNE)
+        self.send_response(204)
+        self.end_headers()
+
     def do_GET(self):
+        if self.path.split("?")[0] == "/tune/skill_tune.json":
+            return self.tune_get()
         if self.path.startswith("/cdn/"):
             return self.cdn()
         if self.path.startswith("/loginapi/"):

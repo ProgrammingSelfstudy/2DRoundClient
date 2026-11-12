@@ -54,7 +54,7 @@ export async function runSkillDemo(scene: BattleScene, spec: string): Promise<vo
 interface SkillInfo { h: { [heroStar: string]: number[] }; k: { [skill: string]: [string, string, string, number, string] } }
 
 // ?skillbtn=70501_5:541314,541104 puts a button on each skill number after the colon instead of the hero's own, any skill number being playable.
-export async function runSkillButtons(scene: BattleScene, spec: string): Promise<void> {
+export async function runSkillButtons(scene: BattleScene, spec: string): Promise<(sid: number) => void> {
   const [hero, extra] = spec.split(":");
   const [fx, table, info] = await Promise.all([loadJson<Fx>("tables/skill_fx.json"), loadJson<HeroSkills>("tables/hero_skills.json"), loadJson<SkillInfo>("tables/hero_skill_info.json")]);
   const [bid, star] = hero.split("_").map(Number);
@@ -100,4 +100,5 @@ export async function runSkillButtons(scene: BattleScene, spec: string): Promise
     bar.appendChild(b);
   }
   document.body.appendChild(bar);
+  return sid => { const label = buttons.find(b => b[1] === sid)?.[0] ?? String(sid); void cast(sid, label).catch(e => console.warn(`skillbtn ${sid}: ${(e as Error).message}`)); };
 }

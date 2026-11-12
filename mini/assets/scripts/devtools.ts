@@ -4,11 +4,13 @@
 //   ?rewarddemo=1  the reward window with a made-up quick battle  ?battledemo=1  the first battle's two models on the screen
 //   ?skilldemo=10401_4   every active skill of that hero (bid_star) against a dummy; see skilldemo.ts
 //   ?skillbtn=70501_5    a button per skill of that hero over the page, to cast them by hand
+//   ?skilltune=70501_5   the same, with a panel to correct the speed, the run and the effects of the skill cast last; see skilltunepanel.ts
 // (?lev= of the main city and ?allstars= of the hero filter are read where they apply.)
 import { App, attempt } from "./app";
 import { buildBattleScene } from "./battlescene";
 import type { campaignFeature } from "./campaign";
 import { runSkillButtons, runSkillDemo } from "./skilldemo";
+import { runSkillTune } from "./skilltunepanel";
 import { spineNode } from "./spine";
 
 export function devtools(app: App, campaign: ReturnType<typeof campaignFeature>): void {
@@ -35,11 +37,13 @@ export function devtools(app: App, campaign: ReturnType<typeof campaignFeature>)
     }
   }
   const skillBtn = q.get("skillbtn");
-  const skillSpec = skillBtn || q.get("skilldemo");
+  const skillTune = q.get("skilltune");
+  const skillSpec = skillBtn || skillTune || q.get("skilldemo");
   if (skillSpec) attempt(app, async () => {
     const scene = await buildBattleScene(windows.layer("popup"), "preview");
     try {
-      if (skillBtn) await runSkillButtons(scene, skillSpec);
+      if (skillTune) await runSkillTune(scene, skillSpec);
+      else if (skillBtn) await runSkillButtons(scene, skillSpec);
       else await runSkillDemo(scene, skillSpec);
     } catch (e) {
       scene.stop();

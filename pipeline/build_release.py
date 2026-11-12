@@ -369,6 +369,9 @@ def main(assets, version, groups):
         put("tables/hero_skills.json", json.dumps(hero_skills(lua), ensure_ascii=False, separators=(",", ":")).encode(), "json", "battle", "partner_data.lua, skill_data*.lua")
         from skill_fx_res_table import table as skill_fx_res  # which effect models a skill's effect row plays, and where (the entities of skill_data.lua)
         put("tables/skill_fx_res.json", json.dumps(skill_fx_res(lua), separators=(",", ":")).encode(), "json", "battle", "skill_data*.lua")
+        tune_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "skill_tune.json")  # the hand corrections made with ?skilltune= (mini/serve.py saves it here)
+        tune = open(tune_path, "rb").read() if os.path.exists(tune_path) else b'{"anim":{},"move":{},"fx":{}}'
+        put("tables/skill_tune.json", json.dumps(json.loads(tune), separators=(",", ":"), sort_keys=True).encode(), "json", "battle", "skill_tune.json")
         from buffs_table import table as buffs  # the battle statuses: name and benefit / harm
         put("tables/buffs.json", json.dumps(buffs(lua), ensure_ascii=False, separators=(",", ":")).encode(), "json", "battle", "skill_data.lua")
 

@@ -6,6 +6,7 @@ import { Node, UITransform, sp } from "cc";
 import { hasFile } from "./cdn";
 import { setModel, spineData } from "./spine";
 import { W, H } from "./design";
+import { fxOf } from "./skilltune";
 
 // res_up, res_down, up_action, down_action, play_type, scale (thousandths), h_scale, x_fix, y_fix, is_front, is_col_effect, spec_res_up
 type Entity = [string, string, string, string, number, number, number, number, number, number, number, string];
@@ -57,20 +58,26 @@ export function playEntity(t: FxRes, id: number, list: number, caster: FxSpot, t
   const r = t.r[String(id)];
   if (!r) return;
   const [up, down, upAct, downAct, type, scale, , xFix, yFix] = r;
-  const dir = caster.side, k = scale * 0.001;
+  const tuned = fxOf(id); // the hand correction of this entity: moved, scaled, started later
+  const dir = caster.side, k = scale * 0.001 * tuned.scale;
+  const later = (f: () => void) => { if (tuned.delay > 0) setTimeout(() => { if (isCurrent?.() !== false) f(); }, tuned.delay * 1000); else f(); };
   const at = (spot: FxSpot, isTarget: boolean) => {
     // on a fighter: over it at y_fix (the top of the model when 0; a hit effect takes y_fix as a percent of the height, 50 when 0), under it at its feet
-    const upY = isTarget ? (yFix || 50) / 100 * spot.height : (yFix === 0 ? spot.height - 15 : yFix);
-    void once(up, upAct || "action", spot.root, xFix * dir, upY, k, dir, isCurrent);
-    void once(down, downAct || "action", spot.root, xFix * dir, 0, k, dir, isCurrent);
+    const upY = (isTarget ? (yFix || 50) / 100 * spot.height : (yFix === 0 ? spot.height - 15 : yFix)) + tuned.dy;
+    later(() => {
+      void once(up, upAct || "action", spot.root, (xFix + tuned.dx) * dir, upY, k, dir, isCurrent);
+      void once(down, downAct || "action", spot.root, (xFix + tuned.dx) * dir, tuned.dy, k, dir, isCurrent);
+    });
   };
   const field = () => {
     // the middle (2), or the casting side (3) or the other (4) at 22 or 78 percent of the width, a quarter up
     const mine = caster.side === 1;
-    const x = type === 2 ? W / 2 : ((type === 3) === mine ? W * 0.22 : W * 0.78) + xFix * dir;
-    const y = H / 4 + yFix;
-    void once(up, upAct || "action", layers.above, x, y, k, dir, isCurrent);
-    void once(down, downAct || "action", layers.below, x, y, k, dir, isCurrent);
+    const x = (type === 2 ? W / 2 : ((type === 3) === mine ? W * 0.22 : W * 0.78) + xFix * dir) + tuned.dx * dir;
+    const y = H / 4 + yFix + tuned.dy;
+    later(() => {
+      void once(up, upAct || "action", layers.above, x, y, k, dir, isCurrent);
+      void once(down, downAct || "action", layers.below, x, y, k, dir, isCurrent);
+    });
   };
   if (list === FxList.hit) { if (target) at(target, true); }
   else if (list === FxList.attack) { if (type === 1) at(caster, false); }
