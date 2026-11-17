@@ -1,0 +1,40 @@
+Attack spacing verification (2026-11-17)
+
+Scope: the dev54 catalog on the LAN skill verification service.
+Reviewed 328 normal/active skill entries for 117 configured five-star heroes.
+Changed 18 move.x keys affecting 21 skills on 16 heroes; replayed all affected skills.
+Animation speed, hit timing, vertical offsets, movement timing and effect overrides were preserved.
+The previously verified H30110/action3=-10 and H30050/action1=-8 entries are retained.
+
+Changes (model/animation: original x -> adjusted x; skill IDs):
+H30080/action3: -8 -> -12; 509101
+H30050/action2: 16 -> 10; 209101
+H30122/action1: -12 -> -20; 537001
+H30064/action1: -15 -> -20; 203001, 203301
+H30058/action1: -12 -> -15; 150001, 150101
+H30046/action1: -12 -> -16; 511001, 511101
+H30046/action2: -12 -> -18; 511301
+H30121/action2: -1 -> -18; 536101
+H30119/action2: -12 -> -20; 534101
+H30123/action1: -12 -> -18; 546001
+H30124/action2: -12 -> -18; 548301
+H30126/action2: -12 -> -16; 550101
+h_kaiduoshenlong/action2: -12 -> -18; 552101
+h_maofushe/action2: -12 -> -20; 558101
+h_maofushe/action3: -12 -> -18; 558301
+h_lufeihzg/action1: -12 -> -16; 777001
+h_xiong/action1: -12 -> -16; 781001
+h_kuzan/action1: -12 -> -18; 891001
+
+Verification:
+All 21 replay panels read the saved x values and recorded hit events.
+Visual review checked body separation, attack contact and return movement.
+Final saved configuration was read back and compared; only move.x changed.
+
+Coverage limits:
+The eight Egghead heroes (70533..70540) have no source skill configuration.
+Greenbull normal attack 769001 lacks its action in this dev54 build, so its spacing was not validated.
+Other star levels, multiplayer formations and live battle positioning were not part of this visual pass.
+
+The configuration is consumed by mini/serve.py and included by pipeline/build_release.py.
+These are hand-tuned display positions, not modifications to the original Lua tables or effect resources.

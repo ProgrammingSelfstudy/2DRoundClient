@@ -1,0 +1,66 @@
+{
+  "anim": {},
+  "fx": {},
+  "move": {
+    "H30046/action1": {
+      "x": -16
+    },
+    "H30046/action2": {
+      "x": -18
+    },
+    "H30050/action1": {
+      "x": -8
+    },
+    "H30050/action2": {
+      "x": 10
+    },
+    "H30058/action1": {
+      "x": -15
+    },
+    "H30064/action1": {
+      "x": -20
+    },
+    "H30080/action3": {
+      "x": -12
+    },
+    "H30110/action3": {
+      "x": -10
+    },
+    "H30119/action2": {
+      "x": -20
+    },
+    "H30121/action2": {
+      "x": -18
+    },
+    "H30122/action1": {
+      "x": -20
+    },
+    "H30123/action1": {
+      "x": -18
+    },
+    "H30124/action2": {
+      "x": -18
+    },
+    "H30126/action2": {
+      "x": -16
+    },
+    "h_kaiduoshenlong/action2": {
+      "x": -18
+    },
+    "h_kuzan/action1": {
+      "x": -18
+    },
+    "h_lufeihzg/action1": {
+      "x": -16
+    },
+    "h_maofushe/action2": {
+      "x": -20
+    },
+    "h_maofushe/action3": {
+      "x": -18
+    },
+    "h_xiong/action1": {
+      "x": -16
+    }
+  }
+}
