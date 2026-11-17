@@ -90,6 +90,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path.split("?")[0] == "/tune/skill_tune.json":
             return self.tune_get()
+        if self.path.split("?")[0] == "/heroes":  # the hero picker for the skill preview pages; lives beside serve.py so a Creator build does not wipe it
+            body = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "heroes.html"), "rb").read()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if self.path.startswith("/cdn/"):
             return self.cdn()
         if self.path.startswith("/loginapi/"):

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>英雄预览列表</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1c1f24; --muted:#6b7280; --line:#e3e6ea; --accent:#2563eb; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14161a; --card:#1e2127; --text:#e8eaed; --muted:#9aa1ab; --line:#2c3038; --accent:#6ea0ff; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 -apple-system,"PingFang SC",sans-serif; }
+  header { position:sticky; top:0; z-index:1; background:var(--bg); padding:12px 16px; border-bottom:1px solid var(--line); }
+  h1 { margin:0 0 8px; font-size:18px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  input[type=search] { flex:1 1 200px; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--text); font:inherit; }
+  select { padding:8px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--text); font:inherit; }
+  .meta { color:var(--muted); font-size:13px; }
+  main { padding:16px; display:grid; grid-template-columns:repeat(auto-fill,minmax(112px,1fr)); gap:12px; }
+  a.card { display:block; text-align:center; text-decoration:none; color:inherit; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 6px; }
+  a.card:hover { border-color:var(--accent); }
+  a.card img { width:64px; height:64px; object-fit:contain; background:var(--bg); border-radius:8px; }
+  .name { margin-top:6px; font-size:13px; font-weight:600; word-break:break-all; }
+  .id { color:var(--muted); font-size:12px; }
+  #err { padding:16px; color:#b42318; }
+</style>
+</head>
+<body>
+<header>
+  <h1>英雄预览列表</h1>
+  <div class="row">
+    <input id="q" type="search" placeholder="搜索名字或编号，例如 索隆 或 70501">
+    <select id="mode">
+      <option value="skilltune">技能调参页（skilltune）</option>
+      <option value="skilldemo">技能演示（skilldemo）</option>
+      <option value="skillbtn">技能按钮（skillbtn）</option>
+    </select>
+    <span class="meta" id="count"></span>
+  </div>
+</header>
+<div id="err"></div>
+<main id="grid"></main>
+<script>
+// Lists the 5-star heroes the H5 release carries (partners table, base[2] = star); a click opens the game page with the skill preview of that hero.
+const grid = document.getElementById("grid"), q = document.getElementById("q"), mode = document.getElementById("mode"), count = document.getElementById("count");
+let heroes = [];
+
+async function load() {
+  const man = (await (await fetch("/cdn/manifest.web.json", { cache: "no-cache" })).json()).files;
+  const url = (p) => { const x = man[p]; return x ? `/cdn/f/${x.hash.slice(0, 2)}/${x.hash}.${x.ext}` : ""; };
+  const t = await (await fetch(url("tables/partners.json"))).json();
+  heroes = Object.entries(t.base)
+    .filter(([, v]) => v[2] === 5)
+    .map(([id, v]) => {
+      const head = t.head[`${id}_${v[2]}`] ?? id;
+      return { id, name: v[0], icon: url(`icons/head/${head}.webp`) || url(`icons/head/${id}.webp`) };
+    })
+    .sort((a, b) => Number(a.id) - Number(b.id));
+  render();
+}
+
+function render() {
+  const k = q.value.trim().toLowerCase();
+  const list = heroes.filter((h) => !k || h.name.toLowerCase().includes(k) || h.id.includes(k));
+  count.textContent = `${list.length} / ${heroes.length}`;
+  grid.replaceChildren(...list.map((h) => {
+    const a = document.createElement("a");
+    a.className = "card";
+    a.href = `/?${mode.value}=${h.id}_5`;
+    a.target = "_blank";
+    const img = document.createElement("img");
+    img.loading = "lazy";
+    img.alt = h.name;
+    if (h.icon) img.src = h.icon;
+    const n = document.createElement("div"); n.className = "name"; n.textContent = h.name;
+    const i = document.createElement("div"); i.className = "id"; i.textContent = h.id;
+    a.append(img, n, i);
+    return a;
+  }));
+}
+
+q.addEventListener("input", render);
+mode.addEventListener("change", render);
+load().catch((e) => { document.getElementById("err").textContent = "加载失败：" + e.message; });
+</script>
+</body>
+</html>
