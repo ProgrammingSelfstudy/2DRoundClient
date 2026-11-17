@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Spine 3.4 binary skeleton (.skel) -> the JSON that Creator 3.8's Spine runtime loads.
+"""Spine 3.3/3.4 binary skeleton (.skel) -> the JSON Creator 3.8 loads.
 
-The original ships Spine 3.4.02 binaries; Creator 3.8.8 only has the 3.8 runtime, which cannot read them, but it reads the 3.x JSON.
+The original ships 3.4.02 binaries and one 3.3.07 region-animation skeleton (E80027/action).
+Creator 3.8.8 cannot read those binaries, but it reads their 3.x JSON.
 The reader follows SkeletonBinary of spine-libgdx 3.4 field by field. A file that does not end exactly where the reader ends is an error,
 so a wrong guess about the format shows up as a failure and not as a broken animation.
 
@@ -25,6 +26,10 @@ class Reader:
         b = self.d[self.p]
         self.p += 1
         return b
+
+    def signed_byte(self):
+        b = self.byte()
+        return b if b < 128 else b - 256
 
     def bool(self):
         return self.byte() != 0
@@ -76,6 +81,29 @@ class Reader:
 
 def num(v):
     return int(v) if v == int(v) and abs(v) < 1e9 else round(v, 6)
+
+
+def constraint_order(out):
+    """Encode the order Spine 3.4 computes in Skeleton.updateCache for 3.8.
+
+    IK runs by increasing first-bone depth (equal depths reverse their input
+    order), then paths, then transforms. 3.8 defaults every omitted order to
+    zero, which would skip all but the first constraint of these restored rigs.
+    """
+    parents = {bone["name"]: bone.get("parent") for bone in out["bones"]}
+
+    def depth(constraint):
+        level, name = 0, parents[constraint["bones"][0]]
+        while name is not None:
+            level += 1
+            name = parents[name]
+        return level
+
+    ik = out.get("ik", [])
+    ordered = [c for _, c in sorted(enumerate(ik), key=lambda pair: (depth(pair[1]), -pair[0]))]
+    ordered += out.get("path", []) + out.get("transform", [])
+    for index, constraint in enumerate(ordered):
+        constraint["order"] = index
 
 
 def curve(r, frame, last):
@@ -207,7 +235,7 @@ def animation(r, bones, slots, iks, transforms, paths, skins, events):
         frames = []
         n = r.int(True)
         for i in range(n):
-            f = {"time": num(r.float()), "mix": num(r.float()), "bendPositive": r.byte() > 0}
+            f = {"time": num(r.float()), "mix": num(r.float()), "bendPositive": r.signed_byte() > 0}
             curve(r, f, i == n - 1)
             frames.append(f)
         anim.setdefault("ik", {})[name] = frames
@@ -290,8 +318,9 @@ def animation(r, bones, slots, iks, transforms, paths, skins, events):
 def convert(data):
     r = Reader(data)
     out = {"skeleton": {"hash": r.string(), "spine": r.string()}}
-    if out["skeleton"]["spine"] != "3.4.02":
-        raise ValueError(f"Spine version {out['skeleton']['spine']}, this reader is for 3.4.02")
+    version = out["skeleton"]["spine"]
+    if version not in ("3.3.07", "3.4.02"):
+        raise ValueError(f"Spine version {version}, this reader supports 3.3.07 and 3.4.02")
     out["skeleton"]["width"], out["skeleton"]["height"] = num(r.float()), num(r.float())
     nonessential = r.bool()
     if nonessential:
@@ -332,12 +361,15 @@ def convert(data):
         c["bones"] = [bones[r.int(True)] for _ in range(r.int(True))]
         c["target"] = bones[r.int(True)]
         c["mix"] = num(r.float())
-        c["bendPositive"] = r.byte() > 0
+        c["bendPositive"] = r.signed_byte() > 0
         iks.append(c["name"])
         out.setdefault("ik", []).append(c)
     for _ in range(r.int(True)):
         c = {"name": r.string()}
-        c["bones"] = [bones[r.int(True)]]
+        # 3.4 stores a count followed by every constrained bone; reading only one
+        # index desynchronizes the rest of the file (including Egghead show poses).
+        # Official 3.4.02 SkeletonBinary.java, "Transform constraints".
+        c["bones"] = [bones[r.int(True)] for _ in range(r.int(True))] if version == "3.4.02" else [bones[r.int(True)]]
         c["target"] = bones[r.int(True)]
         for k in ("rotation", "x", "y", "scaleX", "scaleY", "shearY", "rotateMix", "translateMix", "scaleMix", "shearMix"):
             c[k] = num(r.float())
@@ -373,6 +405,47 @@ def convert(data):
         out["animations"][name] = animation(r, bones, slots, iks, transforms, paths, skins, events)
     if r.p != len(data):
         raise ValueError(f"{len(data) - r.p} bytes left over at {r.p}")
+    if len(iks) + len(paths) + len(transforms) > 1:
+        constraint_order(out)
+    return out
+
+
+def convert_json(data):
+    """Adapt the original 3.x JSON dialect without changing animation values.
+
+    Some shipped actions have JSON instead of binary skeletons. Creator's 3.8
+    reader takes four separate Bezier fields; 3.3/3.4 JSON stores an array.
+    Bone inheritance uses the same mapping as the binary reader above.
+    """
+    out = json.loads(data)
+    version = out.get("skeleton", {}).get("spine")
+    if version not in ("3.3.07", "3.4.02"):
+        raise ValueError(f"Spine JSON version {version}, this reader supports 3.3.07 and 3.4.02")
+    for key in ("bones", "slots", "skins", "animations"):
+        if key not in out:
+            raise ValueError(f"Spine JSON is missing {key}")
+    for bone in out["bones"]:
+        rot, scale = bone.pop("inheritRotation", True), bone.pop("inheritScale", True)
+        mode = {(True, True): "normal", (True, False): "noScale", (False, True): "noRotationOrReflection", (False, False): "onlyTranslation"}[(rot, scale)]
+        if mode != "normal":
+            bone["transform"] = mode
+
+    def curves(value):
+        if isinstance(value, dict):
+            c = value.get("curve")
+            if isinstance(c, list):
+                if len(c) != 4 or not all(isinstance(n, (int, float)) for n in c):
+                    raise ValueError(f"Invalid Bezier curve: {c}")
+                value["curve"], value["c2"], value["c3"], value["c4"] = c
+            for child in value.values():
+                curves(child)
+        elif isinstance(value, list):
+            for child in value:
+                curves(child)
+
+    curves(out["animations"])
+    if sum(len(out.get(key, [])) for key in ("ik", "path", "transform")) > 1:
+        constraint_order(out)
     return out
 
 

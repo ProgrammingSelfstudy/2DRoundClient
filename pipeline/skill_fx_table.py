@@ -20,6 +20,7 @@
   am effect bid -> "attack" when the original action list plays the caster's Spine, otherwise "none"
   d  effect bids with effect_type 1 whose action lists play the caster; different IDs can start separate hits
   ps effect bid -> 0 when the actor holds its final pose until a later action instead of returning to stand; omitted means 1
+  fly effect bid -> original flyItem arguments (delay, flight frames, unused, callback, launch height %, unused, shadows, ...)
 
   python3 pipeline/skill_fx_table.py <lua dir ePoCrKQk.../> <out.json>
 """
@@ -37,13 +38,17 @@ ACT_FIELDS = ["move_time", "move_model_x", "move_model_y", "back_delay_time", "b
 
 
 def effect_rows(lua_dir):
+    seen = set()  # Config.SkillData.data_get_effect checks SkillData1 through 6 in order.
     for path in sorted(glob.glob(f"{lua_dir}/skill_data*.lua")):
         src = open(path, encoding="utf-8").read()
         if "data_get_effect_table = {" not in src:
             continue
         src = src[src.index("data_get_effect_table = {"):]
-        src = src[:src.index("\n}\n")]
+        src = src[:src.index("\n}\n") + 1]
         for match in re.finditer(r'\[(\d+)\] = "(\{.*\})",?\n', src):
+            if match.group(1) in seen:
+                continue
+            seen.add(match.group(1))
             yield match.group(1), lua_row(match.group(2))
 
 
@@ -234,6 +239,20 @@ def actor_actions(lua_dir):
     return modes, hold_pose, sorted(damage_effects)
 
 
+def projectiles(lua_dir):
+    definitions = {
+        action: json.loads("[" + args.strip().rstrip(",") + "]")
+        for action, (op, args) in action_definitions(lua_dir).items() if op == "flyItem"
+    }
+    out = {}
+    for bid, row in effect_rows(lua_dir):
+        actions = [definitions[action] for action in flat_actions(row[4]) if action in definitions]
+        if actions:
+            assert len(actions) == 1, (bid, actions)
+            out[bid] = actions[0]
+    return out
+
+
 def table(lua_dir):
     t, e = effects(lua_dir)
     modes, hold_pose, damage_effects = actor_actions(lua_dir)
@@ -241,7 +260,7 @@ def table(lua_dir):
         "t": t, "e": e, "g": group_actions(lua_dir), "s": shakes(lua_dir),
         "k": blacks(lua_dir), "y": targets(lua_dir), "n": normals(lua_dir),
         "nm": skill_names(lua_dir), "m": acts(lua_dir), "ms": model_scales(lua_dir),
-        "script": scripted_moves(lua_dir), "am": modes, "ps": hold_pose, "d": damage_effects,
+        "script": scripted_moves(lua_dir), "am": modes, "ps": hold_pose, "d": damage_effects, "fly": projectiles(lua_dir),
     }
 
 

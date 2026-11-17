@@ -4,12 +4,12 @@
 // screen shake, hurt or not) is worked out by skillplan.ts from tables/skill_fx.json; this file carries it out. Skill effects and the elf come later.
 import { Color, Director, Graphics, HorizontalTextAlignment, Label, Node, Sprite, Tween, UIOpacity, UITransform, Vec3, VerticalTextAlignment, director, sp, tween } from "cc";
 import { hasFile, loadJson, spriteFrame } from "./cdn";
-import { setModel, spineData, spineNode } from "./spine";
+import { playSpine, preloadSpines, setModel, spineData, spineNode } from "./spine";
 import { W, H } from "./design";
 import { attackOf, backTarget, blackOf, effectInfo, hitEvent, hitShare, movePlan, moveTarget, previewCell, previewZOrder, shakeSteps } from "./skillplan";
 import type { Cell, Fx, MovePlan } from "./skillplan";
-import { FxList, entitiesOf, playEntity } from "./skillfx";
-import type { FxRes, FxSpot } from "./skillfx";
+import { FxList, effectResources, entitiesOf, flyEntity, playEntity } from "./skillfx";
+import type { Flight, FxRes, FxSpot } from "./skillfx";
 import { applyMove, hitShiftOf, loadTune, speedOf } from "./skilltune";
 import type { Tune } from "./skilltune";
 import type { Msg } from "./shared/proto/codec";
@@ -31,6 +31,7 @@ interface Hooks { landed?: (k: number, seconds: number) => void; landTimes?: (se
 export interface BattleScene {
   root: Node;
   start(opening: Msg, mapId: number): Promise<void>;
+  prepare(skillPlays: Msg[]): Promise<void>; // prewarm just the selected skill, before its clock starts
   play(skillPlays: Msg[]): Promise<void>; // one round's attacks (20004)
   stop(): void;
   round(n: number, max: number): void; // "第 n/max 回合" at the top, from the action count of 20002
@@ -43,7 +44,7 @@ export interface BattleScene {
 }
 
 // what the tuning page needs to know of the skill just played: whose animation, the original's run before any correction, the effect entities
-export interface CastInfo { landed: number[]; hits: number[]; model: string; anim: string; animeRes: string; base: MovePlan; entities: number[]; skill: number }
+export interface CastInfo { landed: number[]; hits: number[]; model: string; anim: string; animeRes: string; base: MovePlan; entities: number[]; skill: number; projectiles?: { entity: number; launched: number; arrived?: number }[] }
 
 // A fighter's position node holds the body (flipped for the second group; one Spine per action file, only the playing one shown), a
 // hit-point bar and the floating numbers, which must not be flipped with the body.
@@ -51,7 +52,7 @@ interface BattleVitals {
   hp: number; hpMax: number; bar: Graphics; buffs: Map<number, number>; status: Label;
 }
 interface Fighter {
-  group: number; type: number; bid: number; model: string; root: Node; body: Node; vitals: BattleVitals | null;
+  group: number; type: number; bid: number; model: string; root: Node; body: Node; above: Node; below: Node; vitals: BattleVitals | null;
   dead: boolean;
   ph: boolean; // ph: stands as a placeholder (no model, or none the release carries)
   home: Cell; side: number; row: number; // its grid cell, +1 for the first group and -1 for the second, its row 1..3 (the original's obj_type and col)
@@ -112,6 +113,8 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
   root.on(Node.EventType.TOUCH_END, () => tapped());
   let token = 0;
   const fighters = new Map<number, Fighter>();
+  const flights = new Set<Flight>();
+  const cancelFlights = () => { for (const flight of flights) flight.cancel(); flights.clear(); };
   const sortPreviewRoles = () => {
     Array.from(fighters.values()).sort((a, b) => a.zOrder - b.zOrder || a.root.getSiblingIndex() - b.root.getSiblingIndex())
       .forEach((f, i) => f.root.setSiblingIndex(i));
@@ -201,7 +204,7 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
           const data = await spineData(`spine/hero/${f.model}/${name}`);
           if (mine !== token || !f.body.isValid) { n.destroy(); return null; }
           setModel(s, data);
-          if (preview) s.timeScale = 1.2; // Original battle_act_data.speed_scale_1 (the X1 setting).
+          if (preview) s.timeScale = 1.2; // Original battle_act_data.base_speed_scale / 100 (the X1 setting).
           n.active = false;
           f.body.addChild(n);
           return s;
@@ -219,14 +222,18 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
   // find the skeleton that has animation `name`: its own file, else action1's, else any other action file of the model (the original ships some
   // animations inside another file: H30021's action3 is in action2.json); the files the release lacks are not tried
   const skeletonFor = async (f: Fighter, name: string, animeRes?: string): Promise<{ s: sp.Skeleton; anim: string } | null> => {
+    const mine = token;
     const own = f.ph ? [] : Array.from(new Set([animeRes || name, name, "action1", ...ACTION_FILES])).filter(n => hasFile(`spine/hero/${f.model}/${n}.json`));
     for (const fileName of own) {
+      if (mine !== token || !f.body.isValid) return null;
       const s = await file(f, fileName);
+      if (mine !== token || !f.body.isValid) return null;
       if (s?.findAnimation(name)) return { s, anim: name };
       if (preview && animeRes && fileName === animeRes) return null;
     }
     if (preview && name === "stand2" && hasFile(`spine/hero/${f.model}/show.json`)) {
       const pose = await file(f, "show");
+      if (mine !== token || !f.body.isValid) return null;
       if (pose?.findAnimation("show")) return { s: pose, anim: "show" };
     }
     if (preview) return null;
@@ -260,9 +267,9 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
     if (!found || f.dead) { land(); return; }
     await showOnly(f, found.s);
     if (generation !== token) return;
-    found.s.timeScale = (preview ? 1.2 : 1) * speedOf(f.model, found.anim); // 1.2: the original's battle_act_data.speed_scale_1; the factor is a hand correction
+    found.s.timeScale = (preview ? 1.2 : 1) * speedOf(f.model, found.anim); // 1.2: the original's battle_act_data.base_speed_scale / 100; the factor is a hand correction
     f.body.setScale(Math.abs(f.body.scale.x) * f.side * (reverse ? -1 : 1), f.body.scale.y, 1);
-    if (loop) { found.s.setAnimation(0, found.anim, true); return; }
+    if (loop) { playSpine(found.s, found.anim, true); return; }
     // the damage lands on the animation's hit event, or on its attack event when it has no hit (the area skills); it may run past 2 s (a
     // finishing move), so the wait for its end is its own length and a little more
     const json = found.s.skeletonData?.skeletonJson as { animations?: { [a: string]: { events?: { name: string; time?: number }[] } } } | undefined;
@@ -276,7 +283,7 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
       const timer = setTimeout(resolve, (found.s.findAnimation(found.anim)?.duration ?? 2) / found.s.timeScale * 1000 + 500); // never wait for an animation forever
       if (shift !== 0) for (const t of landAt) timers.push(setTimeout(() => { if (generation === token) tick(); }, Math.max(0, t + shift) / found.s.timeScale * 1000));
       found.s.setEventListener((_entry, event) => {
-        if (generation !== token) return;
+        if (generation !== token || typeof event === "number") return;
         const n = event.data.name.toLowerCase();
         if (n === "attack") on?.attack?.(); // the original's attackPoint, whether or not the damage lands on this event too
         if (n === landOn) { if (shift === 0) tick(); }
@@ -287,7 +294,7 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
       });
       found.s.setCompleteListener(() => { clearTimeout(timer); resolve(); });
       startedAt = performance.now();
-      found.s.setAnimation(0, found.anim, false);
+      playSpine(found.s, found.anim);
     });
     if (generation !== token) return;
     if (timers.length && ticks < timers.length) await wait(Math.max(0, ...landAt.map(t => t + shift)) / found.s.timeScale * 1000 - (found.s.findAnimation(found.anim)?.duration ?? 0) / found.s.timeScale * 1000 + 30); // a landing shifted past the animation's end still comes
@@ -481,7 +488,7 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
     }
     const s = await sk;
     if (mine !== token) return;
-    if (s?.isValid) { s.node.active = true; s.setAnimation(0, f.group === 1 ? "action2" : "action1", false); }
+    if (s?.isValid) { s.node.active = true; playSpine(s, f.group === 1 ? "action2" : "action1"); }
     await wait(300);
     if (mine !== token) return;
     clearTimeout(bannerTimer);
@@ -563,6 +570,7 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
   };
 
   const clearPreview = () => {
+    cancelFlights();
     resetPreviewRound();
     motions.clear();
     for (const layer of [roles, fxBelow, fxAbove, top, roundNode]) {
@@ -585,6 +593,7 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
     show(on) { root.active = on; },
     stop() {
       token++;
+      cancelFlights();
       root.active = false;
       if (preview) clearPreview();
       else for (const f of fighters.values()) cancelMotion(f);
@@ -607,6 +616,7 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
     },
     async start(opening, mapId) {
       const mine = ++token;
+      cancelFlights();
       if (preview) clearPreview();
       else {
         for (const f of fighters.values()) cancelMotion(f);
@@ -631,11 +641,20 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
         fr.layer = root.layer;
         fr.addComponent(UITransform);
         fr.setPosition(gx * (W / 80), gy * (H / 80), 0);
+        const attachment = (name: string) => {
+          const n = new Node(name);
+          n.layer = root.layer;
+          n.addComponent(UITransform);
+          fr.addChild(n);
+          return n;
+        };
+        const below = attachment("bottom_effect_root");
         const body = new Node("body");
         body.layer = root.layer;
         body.addComponent(UITransform);
         body.setScale(group === 1 ? size : -size, size, 1); // the second group faces the first
         fr.addChild(body);
+        const above = attachment("top_effect_root");
         let vitals: BattleVitals | null = null;
         if (!preview) {
           const barNode = new Node("bar");
@@ -645,7 +664,7 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
           fr.addChild(barNode);
           vitals = { hp: Number(o.hp), hpMax: Math.max(1, Number(o.hp_max)), bar: barNode.addComponent(Graphics), buffs: new Map(), status: statusLabel(fr) };
         }
-        const f: Fighter = { group, type, bid, model: model ?? "", ph: false, seq: 0, zOrder: preview ? previewZOrder(Number(o.pos), true) : 0, home: [gx, gy], side: group === 1 ? 1 : -1, row: Math.max(1, Math.min(3, Math.round((gy - 9) / 6))), root: fr, body, vitals, dead: false, files: new Map() };
+        const f: Fighter = { group, type, bid, model: model ?? "", ph: false, seq: 0, zOrder: preview ? previewZOrder(Number(o.pos), true) : 0, home: [gx, gy], side: group === 1 ? 1 : -1, row: Math.max(1, Math.min(3, Math.round((gy - 9) / 6))), root: fr, body, above, below, vitals, dead: false, files: new Map() };
         if (vitals) drawBar(f, vitals);
         fighters.set(Number(o.pos), f);
         roles.addChild(fr);
@@ -657,7 +676,7 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
             if (!found) placeholder(f, String(o.object_name || bid));
             else {
               found.s.node.active = true;
-              found.s.setAnimation(0, found.anim, true);
+              playSpine(found.s, found.anim, true);
             }
           })());
         }
@@ -672,6 +691,29 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
         sortPreviewRoles();
         await Promise.all(poses);
       }
+    },
+    async prepare(plays) {
+      const mine = token;
+      const bases = new Set<string>();
+      for (const p of plays) {
+        if (mine !== token) return;
+        const actor = fighters.get(Number(p.actor));
+        if (!actor) continue;
+        const effects = p.effect_play as Msg[];
+        const bids = effects.map(e => Number(e.effect_bid));
+        const attack = attackOf(fx, Number(p.skill_bid), bids.filter(id => !preview || fx.am?.[String(id)] !== "none"));
+        if (!preview || bids.some(id => fx.am?.[String(id)] !== "none" && !!effectInfo(fx, id)?.anim)) {
+          const found = await skeletonFor(actor, attack.anim, attack.animeRes);
+          if (mine !== token) return;
+          if (!found) throw new Error("缺少该技能动作素材");
+        }
+        for (const target of new Set(effects.map(e => fighters.get(Number(e.target))))) {
+          if (mine !== token) return;
+          if (target && target !== actor) await skeletonFor(target, "hurt");
+        }
+        if (fxRes) for (const base of effectResources(fxRes, bids, actor.side)) bases.add(base);
+      }
+      await preloadSpines(Array.from(bases), () => mine === token);
     },
     // the attacks of a round in their order: the attacker plays its action, runs to the first enemy it hits on the animation's move event and back on
     // its back event, the screen shakes on shake_point, and the hits land on its hit events, one part of an effect's split damage at each (parts the
@@ -690,7 +732,7 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
         const actor = fighters.get(actorPos);
         if (!actor || actor.dead) continue;
         if (preview) {
-          for (const layer of [fxAbove, fxBelow, ...Array.from(fighters.values(), f => f.root)]) {
+          for (const layer of [fxAbove, fxBelow, ...Array.from(fighters.values()).flatMap(f => [f.above, f.below])]) {
             for (const effect of layer.children.filter(child => child.name.startsWith("fx_"))) {
               effect.removeFromParent();
               effect.destroy();
@@ -722,19 +764,19 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
         const parts = preview ? [] : effects.map(e => ({ e, n: effectInfo(fx, Number(e.effect_bid))?.splitHurt ?? 1, done: 0 }));
         const pending: Promise<void>[] = [];
         // the skill's effect models: the lists of its effect rows play at the animation's ready, attack (with the scene's area effects) and first hit
-        const spot = (f: Fighter): FxSpot => ({ root: f.root, side: f.side, height: 150 });
+        const spot = (f: Fighter): FxSpot => ({ root: f.root, above: f.above, below: f.below, side: f.side, height: 120 * f.body.scale.y, row: f.row, timeScale: preview ? 1.2 : 1 });
         const bids = effects.map(e => Number(e.effect_bid));
         if (fxRes && lastCast) lastCast.entities = Array.from(new Set([0, 1, 2, 3, 4, 5].reduce<number[]>((all, list) => all.concat(entitiesOf(fxRes, bids, list)), [])));
         const targets = effects.map(e => fighters.get(Number(e.target))).filter((t): t is Fighter => !!t && t.group !== actor.group);
-        const isCurrent = preview ? () => mine === token && cast === previewCastToken : undefined;
+        const isCurrent = () => mine === token && cast === previewCastToken;
         const layers = { above: fxAbove, below: fxBelow };
-        const playFx = (list: number, onTargets: boolean) => {
+        const playFx = (list: number, onTargets: boolean, onlyTarget?: Fighter) => {
           if (!fxRes || mine !== token) return;
           if (preview && onTargets) {
             const seen = new Map<Fighter, Set<number>>();
             for (const effect of effects) {
               const target = fighters.get(Number(effect.target));
-              if (!target) continue;
+              if (!target || (onlyTarget && target !== onlyTarget)) continue;
               const ids = seen.get(target) ?? new Set<number>();
               seen.set(target, ids);
               for (const id of entitiesOf(fxRes, [Number(effect.effect_bid)], list)) {
@@ -746,7 +788,7 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
             return;
           }
           for (const id of entitiesOf(fxRes, bids, list)) {
-            if (onTargets) for (const t of new Set(targets)) playEntity(fxRes, id, list, spot(actor), spot(t), layers);
+            if (onTargets) for (const t of new Set(targets)) { if (!onlyTarget || t === onlyTarget) playEntity(fxRes, id, list, spot(actor), spot(t), layers, isCurrent); }
             else playEntity(fxRes, id, list, spot(actor), victim ? spot(victim) : undefined, layers, isCurrent);
           }
         };
@@ -757,7 +799,8 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
           const others = black.hideOthers ? Array.from(fighters.values()).filter(o => o !== actor && !o.dead && targets.indexOf(o) < 0) : [];
           blackTimer = setTimeout(() => { if (mine === token) blackOn(black.alpha, others); }, black.delay * 1000);
         }
-        let hitFx = false, readyFx = false, attackFx = false;
+        const hitFx = new Set<Fighter>();
+        let readyFx = false, attackFx = false;
         const ready = () => {
           if (preview && readyFx) return;
           readyFx = true;
@@ -769,29 +812,51 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
           playFx(FxList.attack, false);
           playFx(FxList.area, false);
         };
-        const land = () => {
+        const land = (onlyTarget?: Fighter) => {
           if (mine !== token) return;
           if (preview) {
             const reacting = new Set<Fighter>();
             for (const effect of effects) {
               const target = fighters.get(Number(effect.target));
               const info = effectInfo(fx, Number(effect.effect_bid));
-              if (target && !target.ph && target.group !== actor.group && info && !info.noHurt) reacting.add(target);
+              if (target && (!onlyTarget || target === onlyTarget) && !target.ph && target.group !== actor.group && info && !info.noHurt) reacting.add(target);
             }
             for (const target of reacting) reactions.push(previewHurt(target));
           }
-          if (!hitFx) {
-            hitFx = true;
+          const hitTargets = onlyTarget ? [onlyTarget] : Array.from(new Set(effects.map(e => fighters.get(Number(e.target))).filter((f): f is Fighter => !!f)));
+          for (const target of hitTargets) if (!hitFx.has(target)) {
+            hitFx.add(target);
             if (preview) {
               ready();
               release();
             }
-            playFx(FxList.hit, true);
+            playFx(FxList.hit, true, target);
           }
-          for (const part of parts) if (part.done < part.n) pending.push(hit(part.e, ++part.done, part.n));
+          for (const part of parts) if (part.done < part.n && (!onlyTarget || fighters.get(Number(part.e.target)) === onlyTarget)) pending.push(hit(part.e, ++part.done, part.n));
+        };
+        const flyBids = bids.filter(id => fx.fly?.[String(id)]);
+        const projectile = flyBids.length > 0;
+        const castInfo = lastCast;
+        if (projectile) castInfo.projectiles = [];
+        const launch = () => {
+          if (!fxRes || !isCurrent()) return;
+          const targets = Array.from(new Set(effects.filter(e => flyBids.includes(Number(e.effect_bid))).map(e => fighters.get(Number(e.target))).filter((f): f is Fighter => !!f && f !== actor)));
+          const ids = entitiesOf(fxRes, flyBids, FxList.trace);
+          const id = ids[ids.length - 1]; // BattleModel.flyItem retains the final trace entity.
+          if (id === undefined) return;
+          for (const target of targets) {
+            const event = { entity: id, launched: performance.now(), arrived: undefined as number | undefined };
+            castInfo.projectiles!.push(event);
+            const flight = flyEntity(fxRes, id, fx.fly![String(flyBids[0])], spot(actor), spot(target), fxAbove, targets.length > 1, () => {
+              event.arrived = performance.now();
+              land(target);
+            }, isCurrent);
+            flights.add(flight);
+            pending.push(flight.done.then(() => { flights.delete(flight); }));
+          }
         };
         const hooks: Hooks = {
-          hit: land, ready, attack: release, landTimes: times => { if (lastCast) lastCast.hits = times; }, landed: (k, seconds) => { if (lastCast) lastCast.landed[k - 1] = seconds; },
+          hit: projectile ? undefined : () => land(), ready, attack: () => { if (projectile) launch(); release(); }, landTimes: times => { if (!projectile) castInfo.hits = times; }, landed: (k, seconds) => { if (!projectile) castInfo.landed[k - 1] = seconds; },
           move: () => {
             if (actor.ph) return;
             if (!preview) actor.root.setSiblingIndex(roles.children.length);
@@ -847,6 +912,8 @@ export async function buildBattleScene(canvas: Node, mode: "battle" | "preview" 
           if (mine === token && black) blackOff();
         }
         if (mine !== token) { clearTimeout(blackTimer); return; }
+        if (projectile) await Promise.all(pending); // Arrival owns damage, even when the actor's animation ends first.
+        if (mine !== token) return;
         while (parts.some(part => part.done < part.n)) land();
         await Promise.all(pending);
         if (mine !== token) { clearTimeout(blackTimer); return; }

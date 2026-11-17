@@ -26,14 +26,17 @@ def lua_row(text):  # one quoted Lua table literal of the effect table -> list (
 
 
 def table(lua_dir):
-    groups = {}
-    for path in glob.glob(f"{lua_dir}/skill_data*.lua"):
+    groups, seen = {}, set()
+    for path in sorted(glob.glob(f"{lua_dir}/skill_data*.lua")):
         src = open(path, encoding="utf-8").read()
         if "data_get_effect_table = {" not in src:
             continue
         src = src[src.index("data_get_effect_table = {"):]
-        src = src[:src.index("\n}\n")]  # the effect table only; the skill tables follow in the same file
+        src = src[:src.index("\n}\n") + 1]  # retain the last row's newline; the skill tables follow
         for m in re.finditer(r'\[(\d+)\] = "(\{.*\})",?\n', src):
+            if m.group(1) in seen:
+                continue  # data_get_effect keeps the first matching SkillData module
+            seen.add(m.group(1))
             row = lua_row(m.group(2))
             groups.setdefault(str(row[1]), []).append((row[0], row[6]))
     out = {}

@@ -18,6 +18,7 @@ export interface Fx {
   am?: Record<string, "none" | "attack">; // whether an effect invokes the actor animation
   d?: number[]; // original effect_type 1 effects that play the caster's action
   ps?: Record<string, number>; // original play_stand override, keyed by effect bid
+  fly?: Record<string, (number | string)[]>; // original flyItem arguments; only these actions launch trace effects
   ms?: Record<string, number>; // original model_scale from SkillData.data_get_model_data
   script?: Record<string, { op: string; args: (number | string)[] }[][]>; // resolved effect action program
   m: { [model: string]: { [animeRes: string]: { [anim: string]: number[] } } }; // see MOVE_FIELDS; "0" is the default row
@@ -141,6 +142,28 @@ export function effectInfo(fx: Fx, effectBid: number): EffectInfo | null {
 // what one hit of an effect whose damage is split into n hits shows (BattleModel.playMagic: math.ceil(hp_changed / split_hurt), so a loss of 100 in
 // 3 hits is 33 each, three times; the target's hit points are then set to the server's after the last hit)
 export const hitShare = (change: number, n: number): number => (n > 1 ? Math.ceil(change / n) : change);
+
+// BattleModel.effectArea: column coordinates precede the play type; SCENE ignores row offsets.
+// Field effects use scale 1 in SkillAct.effectArea, unlike effects attached to a renderer.
+export function fieldEffectPosition(type: number, side: number, row: number, column: boolean, xFix: number, yFix: number, width: number, height: number): Cell {
+  if (column) return [(side === 1 ? 34 : 44) * width / 80 + xFix, [17, 23, 29][Math.max(1, Math.min(3, row)) - 1] * height / 80 + yFix];
+  if (type === 2) return [width / 2, height / 2];
+  return [((type === 3) === (side === 1) ? 0.22 : 0.78) * width + xFix * side, height / 4 + yFix];
+}
+
+// BattleModel.center_pos / item and SkillAct.flyItem. x_fix trims the flight at the
+// target-facing edge; it is not an offset of the launch point. Cocos2d-x's clockwise
+// rotation is converted to Creator's counterclockwise angle by using atan directly.
+export function projectilePath(actor: Cell, target: Cell, side: number, actorHeight: number, targetHeight: number, xFix: number, yFix: number, args: (number | string)[], multiple = false): { from: Cell; to: Cell; seconds: number; delay: number; angle: number } {
+  const y = yFix || 50, x = xFix * side;
+  const from: Cell = [actor[0], actor[1] + Number(args[4] ?? 0) * actorHeight / 100];
+  const aim: Cell = [target[0], target[1] + (multiple ? y : y * targetHeight / 100)];
+  const dx = aim[0] - actor[0];
+  const correction = dx === 0 ? 0 : (aim[1] - actor[1] - y) * Math.abs(x) / dx * side;
+  const to: Cell = [aim[0] + x, aim[1] - correction];
+  const angle = Math.atan2((to[1] - from[1]) * side, (to[0] - from[0]) * side) * 180 / Math.PI;
+  return { from, to, angle, seconds: Number(args[1] ?? 30) / 60, delay: Number(args[0] ?? 0) * 2 / (60 * 60) };
+}
 
 // the event of an attack animation that lands the damage: "hit"; an animation without one (the area skills) has "attack", which the original
 // takes as the damage point of an area effect, and a few have hit_big / hit_none (SkillAct.setAnimationWithEvent)

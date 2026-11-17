@@ -3,7 +3,8 @@
 
   l  effect row bid -> [bact, act, area, hit, hurt, trc]: the lists of effect entity bids an effect row names (skill_data*.lua data_get_effect_table,
      fields 8 to 13: bact before the attack, act at the attack point, area on the scene, hit on the target at the hit, hurt on the target when hurt,
-     trc the trace); rows with no list at all are left out
+     trc the trace); references absent from data_get_effect_data are skipped, as BattleModel.getCurEffectList does;
+     rows with no resolved list at all are left out
   r  effect entity bid -> [res_up, res_down, up_action, down_action, play_type, scale, h_scale, x_fix, y_fix, is_front, is_col_effect, spec_res_up]
      (skill_data.lua data_get_effect_data): the Spine model drawn over and under the fighter, the animation each plays, where it goes
      (play_type: 1 on the caster, 2 scene, 3 caster side of the field, 4 enemy side, 5 target), size in thousandths, and the offset
@@ -35,14 +36,17 @@ def entities(lua_dir):
 
 
 def lists(lua_dir):
-    out = {}
+    out, seen = {}, set()
     for path in sorted(glob.glob(f"{lua_dir}/skill_data*.lua")):
         src = open(path, encoding="utf-8").read()
         if "data_get_effect_table = {" not in src:
             continue
         src = src[src.index("data_get_effect_table = {"):]
-        src = src[:src.index("\n}\n")]
+        src = src[:src.index("\n}\n") + 1]  # the last effect row is also part of the table
         for m in re.finditer(r'\[(\d+)\] = "(\{.*\})",?\n', src):
+            if m.group(1) in seen:
+                continue  # Config.SkillData.data_get_effect resolves SkillData1 before SkillData2, etc.
+            seen.add(m.group(1))
             row = lua_row(m.group(2))
             # 0-based: 7 bact, 8 act, 9 area, 10 hit, 11 hurt, 12 trc
             ls = [[int(x) for x in row[i]] for i in range(7, 13)]
@@ -52,7 +56,15 @@ def lists(lua_dir):
 
 
 def table(lua_dir):
-    return {"l": lists(lua_dir), "r": entities(lua_dir)}
+    resources = entities(lua_dir)
+    resolved = {}
+    for bid, slots in lists(lua_dir).items():
+        # The original inserts data_get_effect_data[id] into a Lua array. A nil
+        # entry adds nothing; no nearby ID or generic effect is substituted.
+        slots = [[entity for entity in ids if str(entity) in resources] for ids in slots]
+        if any(slots):
+            resolved[bid] = slots
+    return {"l": resolved, "r": resources}
 
 
 if __name__ == "__main__":

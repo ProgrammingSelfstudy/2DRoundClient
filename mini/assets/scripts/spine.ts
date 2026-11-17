@@ -1,15 +1,35 @@
 // Spine models from the release (spine/<fx|hero>/<model>/<action>.{json,atlas,webp}); the .json was converted from the original's Spine 3.4
 // binary by pipeline/skel_to_json.py, because Creator's runtime is 3.8 and cannot read the 3.4 binary.
-import { Node, UITransform, sp } from "cc";
+import { Director, Node, UITransform, director, sp } from "cc";
 import { fileUrl, texture, texturePma } from "./cdn";
+import { armAnimationStart, prepareSelectedResources } from "./skillpreload";
 
 const models = new Map<string, Promise<sp.SkeletonData>>();
-const pma = new Set<sp.SkeletonData>(); // the models whose pictures were loaded premultiplied (see below)
+const pma = new WeakSet<sp.SkeletonData>(); // the models whose pictures were loaded premultiplied (see below)
 
 // give a skeleton its model; this, not `skeletonData =` alone, so that it draws premultiplied pictures as such
 export function setModel(s: sp.Skeleton, data: sp.SkeletonData): void {
   s.skeletonData = data;
   s.premultipliedAlpha = pma.has(data);
+}
+
+// Keep the animation's own clock independent of loading earlier in the current frame.
+// Subsequent frames and the skeleton's timeScale are unchanged.
+export function playSpine(s: sp.Skeleton, anim: string, loop = false): ReturnType<sp.Skeleton["setAnimation"]> {
+  armAnimationStart(s);
+  return s.setAnimation(0, anim, loop);
+}
+
+export function afterSpineFrame(): Promise<void> {
+  return new Promise(resolve => director.once(Director.EVENT_AFTER_DRAW, resolve));
+}
+
+// Populate the existing SkeletonData cache and its parsed runtime data, without creating
+// hidden skeleton nodes or baking animation/GPU frame caches for all the hero's skills.
+export function preloadSpines(bases: readonly string[], isCurrent?: () => boolean): Promise<void> {
+  return prepareSelectedResources(bases, spineData, data => {
+    if (!data.getRuntimeData()) throw new Error("无法解析技能骨骼素材");
+  }, afterSpineFrame, isCurrent);
 }
 
 // `base` is "spine/fx/E51130/action": the skeleton, atlas and the pages the atlas names, loaded once per model
@@ -35,6 +55,8 @@ export function spineData(base: string): Promise<sp.SkeletonData> {
       return sd;
     })();
     models.set(base, p);
+    // A transient fetch failure must not make the preview's retry reuse a rejected promise.
+    void p.catch(() => { if (models.get(base) === p) models.delete(base); });
   }
   return p;
 }
@@ -46,7 +68,7 @@ export async function spineNode(base: string, anim: string, parent: Node): Promi
   n.addComponent(UITransform);
   const s = n.addComponent(sp.Skeleton);
   setModel(s, await spineData(base));
-  s.setAnimation(0, anim, true);
+  playSpine(s, anim, true);
   parent.addChild(n);
   return s;
 }

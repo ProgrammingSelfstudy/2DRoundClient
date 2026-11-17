@@ -7,6 +7,7 @@ import type { PartnerTable } from "./herocell";
 import type { OperationLog } from "./operationlog";
 import { PREVIEW_ACTOR, previewCasts, previewOpening } from "./skillplan";
 import type { Fx } from "./skillplan";
+import { afterSpineFrame } from "./spine";
 import { opaqueBase } from "./ui";
 import { dragScroll } from "./widgets";
 
@@ -164,7 +165,7 @@ export async function buildSkillPreview(parent: Node, log?: OperationLog): Promi
     const height = Math.max(106, rows * (BTN_H + GAP) + 18);
     const grid = box(content, "preview_skills", W / 2, 56 + height / 2, W - 44, height, PAPER);
     if (!skills.length) {
-      label(grid, "暂无技能演示", 30, 600, 64);
+      label(grid, "原版未配置技能", 30, 600, 64);
       return;
     }
     const opacity = grid.addComponent(UIOpacity);
@@ -178,8 +179,16 @@ export async function buildSkillPreview(parent: Node, log?: OperationLog): Promi
         if (!skill.effects.length) { showDescription(skill, grid); return; }
         busy = true;
         opacity.opacity = 215;
-        status.string = `${skill.name} · 播放中`;
-        void scene.play(previewCasts(fx, skill.id, skill.effects)).then(() => {
+        status.string = `${skill.name} · 准备中`;
+        const casts = previewCasts(fx, skill.id, skill.effects);
+        void (async () => {
+          await afterSpineFrame();
+          if (generation !== token) return;
+          await scene.prepare(casts);
+          if (generation !== token) return;
+          status.string = `${skill.name} · 播放中`;
+          await scene.play(casts);
+        })().then(() => {
           if (generation === token) {
             status.string = skill.name;
             log?.record("skillPlayed", skill.id);

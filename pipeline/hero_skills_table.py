@@ -27,7 +27,7 @@ def rows(path, marker, pat):  # the quoted Lua rows of one table of a file
     if marker not in src:
         return {}
     src = src[src.index(marker):]
-    src = src[:src.index("\n}\n")]
+    src = src[:src.index("\n}\n") + 1]  # keep the last row's newline for the row pattern
     out = {}
     for m in re.finditer(pat, src):
         try:
@@ -40,7 +40,8 @@ def rows(path, marker, pat):  # the quoted Lua rows of one table of a file
 def skill_rows(lua_dir):  # skill bid -> the row of data_get_skill_table (1 name, 8 type, 13 effect_list)
     out = {}
     for path in sorted(glob.glob(f"{lua_dir}/skill_data*.lua")):
-        out.update(rows(path, "data_get_skill_table = {", r'\[(\d+)\] = "(\{.*\})",?\n'))
+        for bid, row in rows(path, "data_get_skill_table = {", r'\[(\d+)\] = "(\{.*\})",?\n').items():
+            out.setdefault(bid, row)  # data_get_skill tries SkillData1 through SkillData6 in order
     return out
 
 

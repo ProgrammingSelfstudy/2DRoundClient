@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { attackOf, backTarget, effectInfo, hitEvent, hitShare, movePlan, moveTarget, previewCast, previewCasts, previewCell, previewOpening, previewZOrder, shakeSteps } from "../../mini/assets/scripts/skillplan.ts";
+import { attackOf, backTarget, effectInfo, fieldEffectPosition, hitEvent, hitShare, movePlan, moveTarget, previewCast, previewCasts, previewCell, previewOpening, previewZOrder, projectilePath, shakeSteps } from "../../mini/assets/scripts/skillplan.ts";
 import type { Fx, MovePlan } from "../../mini/assets/scripts/skillplan.ts";
 
 const ASSETS = process.env.ASSETS ?? join(import.meta.dirname, "../../../2DRoundAssets");
@@ -16,6 +16,32 @@ const fx: Fx = have ? (() => {
   return JSON.parse(readFileSync(join(dir, "f", f.hash.slice(0, 2), `${f.hash}.json`), "utf8"));
 })() : ({} as Fx);
 const opts = { skip: have ? false : "no built release with tables/skill_fx.json" };
+
+test("original scene, column and side effects use distinct coordinate rules", () => {
+  assert.deepEqual(fieldEffectPosition(2, 1, 2, false, 90, -30, 720, 1280), [360, 640]);
+  assert.deepEqual(fieldEffectPosition(2, -1, 2, false, 90, -30, 720, 1280), [360, 640]);
+  assert.deepEqual(fieldEffectPosition(4, 1, 2, true, 30, -10, 720, 1280), [336, 358]);
+  assert.deepEqual(fieldEffectPosition(4, -1, 3, true, 30, -10, 720, 1280), [426, 454]);
+  assert.deepEqual(fieldEffectPosition(3, 1, 2, false, 30, -10, 720, 1280), [188.4, 310]);
+  assert.deepEqual(fieldEffectPosition(4, -1, 2, false, 30, -10, 720, 1280), [128.4, 310]);
+});
+
+test("original flyItem launches at caster height and trims the endpoint, with mirrored facing", () => {
+  const args = [0, 20, 0, "hurt", 50, 0, 0];
+  const left = projectilePath([162, 336], [558, 336], 1, 120, 120, -130, 50, args);
+  assert.deepEqual(left.from, [162, 396]);
+  assert.deepEqual(left.to, [428, 396 - 10 * 130 / 396]);
+  assert.equal(left.seconds, 20 / 60);
+  assert.equal(left.delay, 0);
+  const right = projectilePath([558, 336], [162, 336], -1, 120, 120, -130, 50, args);
+  assert.deepEqual(right.from, [558, 396]);
+  assert.deepEqual(right.to, [292, left.to[1]]);
+  assert.equal(right.angle, -left.angle);
+  const many = projectilePath([162, 336], [558, 336], 1, 120, 120, -95, 50, [0, 8, 0, "hurt", 70], true);
+  assert.deepEqual(many.from, [162, 420]);
+  assert.deepEqual(many.to, [463, 386]); // multi-target path uses y_fix pixels, not a height percentage
+  assert.equal(many.seconds, 8 / 60);
+});
 
 test("preview builds visual-only casts with the original actor, ally and enemy targets", () => {
   const table: Fx = { t: [], e: {}, g: {}, s: {}, m: {}, y: { "41": 4, "42": 7, "43": 2 } };

@@ -27,7 +27,7 @@ import zipfile
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from csb_tree import tree  # noqa: E402
-from skel_to_json import convert  # noqa: E402
+from skel_to_json import convert, convert_json  # noqa: E402
 
 LAYOUTS = {"boot": ["login/user_panel.csb"], "mainui": ["mainui/mainui_view.csb"],
            "backpack": ["backpack/backpack_window.csb", "backpack/goods_item.csb"],
@@ -92,7 +92,7 @@ def group_of(path):
 
 
 BATTLE_BG = re.compile(r"^resource/bigbg/battle_bg/(\d+)/")
-SPINE_DIR = re.compile(r"^v9o8qm1Y40cbOAlh6LDp0kMDi5CzXlsO/(E\d+|e_[A-Za-z0-9_]+|[Hh]\d+|[Hh]_[A-Za-z0-9]+)/")
+SPINE_DIR = re.compile(r"^v9o8qm1Y40cbOAlh6LDp0kMDi5CzXlsO/(E(?:X)?\d+|e_[A-Za-z0-9_]+|[Hh]\d+|[Hh]_[A-Za-z0-9]+)/")
 SPINE_BASE = "v9o8qm1Y40cbOAlh6LDp0kMDi5CzXlsO"
 SPINE_ACTIONS = [f"action{i}" for i in range(1, 10)] + ["action", "stand2", "hurt", "run", "show", "show2", "show3"]  # the animation files of a model
 
@@ -173,7 +173,7 @@ def atlas_json(pl, texture_logical, size):
     return {"texture": texture_logical, "size": size, "frames": frames}
 
 
-def main(assets, version, groups):
+def main(assets, version, groups, out_dir=None):
     rep = f"{assets}/reports"
     audit = {r["name"].rsplit(".", 1)[0]: r for r in json.load(open(f"{rep}/audit.json"))["images"]}
     found = json.load(open(f"{rep}/resmap.json"))["found"]
@@ -192,7 +192,7 @@ def main(assets, version, groups):
             from resource_hash import resource_hash
             model = g.split("-", 1)[1]
             for name in SPINE_ACTIONS:
-                for ext in ("skel", "atlas"):
+                for ext in ("skel", "json", "atlas"):
                     path = f"{SPINE_BASE}/{model}/{name}.{ext}"
                     h = resource_hash(path)
                     if h not in found and os.path.exists(f"{pkg}/{h[0]}/{h}.{ext}"):
@@ -207,7 +207,7 @@ def main(assets, version, groups):
     inv = {p: h for h, p in found.items()}
     z = zipfile.ZipFile(f"{assets}/source/decrypted-images.zip")
     pkg = f"{assets}/source/restored-source/outputs/apk-extracted/assets/HASH"
-    out = f"{assets}/build/{version}"
+    out = os.fspath(out_dir) if out_dir is not None else f"{assets}/build/{version}"
     os.makedirs(f"{out}/f", exist_ok=True)
     files, tmp = {}, tempfile.mkdtemp()
     unconverted = []
@@ -227,9 +227,11 @@ def main(assets, version, groups):
         g = group_of(p)
         if g not in groups or not g.startswith(("fx-", "hero-")) or not p.endswith(".atlas"):
             continue
-        skel = p.removesuffix(".atlas") + ".skel"
-        skel_hash = inv.get(skel)
-        if not skel_hash:
+        base = p.removesuffix(".atlas")
+        # Keep existing binary exports authoritative when present; a few real
+        # actions (h_lvniu/action1, E77002/action) shipped only as Spine JSON.
+        candidates = [base + ext for ext in (".skel", ".json") if inv.get(base + ext)]
+        if not candidates:
             continue
         atlas = open(f"{pkg}/{h[0]}/{h}.atlas", "rb").read()
         directory = p.rsplit("/", 1)[0]
@@ -237,13 +239,23 @@ def main(assets, version, groups):
                  if line.strip().lower().endswith(".png")}
         if not pages or any(inv.get(page) not in audit for page in pages):
             continue
-        try:  # Spine 3.4 binary -> the JSON Creator's 3.8 runtime reads
-            data = open(f"{pkg}/{skel_hash[0]}/{skel_hash}.skel", "rb").read()
-            skeleton = json.dumps(convert(data), separators=(",", ":")).encode()
-        except Exception as e:
-            unconverted.append(f"{skel}: {type(e).__name__} {e}")
+        converted = None
+        for source in candidates:
+            source_hash = inv[source]
+            source_ext = source.rsplit(".", 1)[1]
+            try:
+                data = open(f"{pkg}/{source_hash[0]}/{source_hash}.{source_ext}", "rb").read()
+                # Binary conversion verifies that every byte was consumed.
+                converted = convert(data) if source_ext == "skel" else convert_json(data)
+                break
+            except Exception as e:
+                unconverted.append(f"{source}: {type(e).__name__} {e}")
+        if converted is None:
             continue
-        put(spine_logical(skel, g, "json"), skeleton, "json", g, skel)
+        skeleton = json.dumps(converted, separators=(",", ":")).encode()
+        put(spine_logical(source, g, "json"), skeleton, "json", g, source,
+            sourceFormat=source_ext, sourceSpine=converted["skeleton"]["spine"],
+            sourceBytes=len(data), sourceSha256=hashlib.sha256(data).hexdigest())
         put(spine_logical(p, g, "atlas"), atlas, "atlas", g, p)
         spine_pages.update(pages)
 
