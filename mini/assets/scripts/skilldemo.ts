@@ -49,7 +49,7 @@ export async function runSkillDemo(scene: BattleScene, spec: string): Promise<vo
 }
 
 // Dev convenience: ?skillbtn=70501_5 (a hero's bid and star) stands the hero against the dummy and puts one temporary button over the page for each
-// skill the hero has (the normal attack aside), in slot order and named by kind: 主动1 被动1 主动2 被动2 ... (hero_skill_info.json). An
+// skill the hero has, in slot order: the normal attack first as 普攻, then named by kind: 主动1 被动1 主动2 被动2 ... (hero_skill_info.json). An
 // active plays through the scene's own play() as in skilldemo; a passive has no cast animation in the client's tables, so its name and text show.
 interface SkillInfo { h: { [heroStar: string]: number[] }; k: { [skill: string]: [string, string, string, number, string] } }
 
@@ -60,9 +60,10 @@ export async function runSkillButtons(scene: BattleScene, spec: string): Promise
   const [bid, star] = hero.split("_").map(Number);
   let key = hero, st = star;
   while (!info.h[key] && st > 1) key = `${bid}_${--st}`; // the highest star of the hero the table has at or below the one asked for
-  const ids = extra ? extra.split(",").filter(Boolean).map(Number) : (info.h[key] ?? table.h[hero]?.[1] ?? []).slice(1);
+  const ids = extra ? extra.split(",").filter(Boolean).map(Number) : (info.h[key] ?? table.h[hero]?.[1] ?? []);
   const kinds = [0, 0]; // how many actives and passives have been named so far
-  const buttons: [string, number][] = ids.map(id => {
+  const buttons: [string, number][] = ids.map((id, i) => {
+    if (!extra && i === 0) return ["普攻", id]; // the first skill of a hero is its normal attack
     const passive = info.k[String(id)]?.[3] ? 1 : 0;
     return [`${passive ? "被动" : "主动"}${++kinds[passive]}`, id];
   });

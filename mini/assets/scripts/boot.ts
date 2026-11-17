@@ -11,6 +11,9 @@ import { H5_OPERATION_LOG_PREFIX, OperationLog } from "./operationlog";
 import { Store } from "./store";
 import { toast } from "./toast";
 import { Windows } from "./windows";
+import { buildBattleScene } from "./battlescene";
+import { runSkillButtons, runSkillDemo } from "./skilldemo";
+import { runSkillTune } from "./skilltunepanel";
 import { GameSocket } from "./shared/net";
 import { Session } from "./shared/session";
 import { enterGame, httpRegister, randomCredentials } from "./shared/login";
@@ -55,6 +58,23 @@ director.once(Director.EVENT_AFTER_SCENE_LAUNCH, async () => {
   } catch (e) {
     log.record("releaseFailed");
     relError = `取不到资源版本：${(e as Error).message}`;
+  }
+  // the skill preview pages (?skilltune=, ?skillbtn=, ?skilldemo=) need no account: they show a hero against a dummy from the release tables alone,
+  // so they open straight from the hero picker (mini/heroes.html) without the login page
+  const previewSpec = q.get("skilltune") || q.get("skillbtn") || q.get("skilldemo");
+  if (previewSpec) {
+    screen.on("window-resize", fitView);
+    try {
+      const scene = await buildBattleScene(new Windows(canvas).layer("popup"), "preview");
+      try {
+        if (q.get("skilltune")) await runSkillTune(scene, previewSpec);
+        else if (q.get("skillbtn")) await runSkillButtons(scene, previewSpec);
+        else await runSkillDemo(scene, previewSpec);
+      } catch (e) { scene.stop(); throw e; }
+    } catch (e) {
+      console.warn(`skill preview: ${(e as Error).stack ?? e}`);
+    }
+    return;
   }
   const page = await buildLoginPage(canvas, account, q.get("pass") ?? "");
   screen.on("window-resize", () => { fitView(); page.relayout(); });
